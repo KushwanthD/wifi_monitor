@@ -62,13 +62,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "            $active_ips = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' };" ^
     "            if ($active_ips) { $host_ip = $active_ips[0].IPAddress } else { $host_ip = '127.0.0.1' }" ^
     "        }" ^
+    "        $ip_parts = $host_ip.Split('.');" ^
+    "        $subnet_prefix = $ip_parts[0] + '.' + $ip_parts[1] + '.' + $ip_parts[2] + '.';" ^
     "        $devices = @();" ^
     "        $devices += @{ 'ip' = $host_ip; 'mac' = $mac; 'vendor' = 'This Workstation'; 'is_host' = $true; 'latency_ms' = 0 };" ^
     "        $arp = arp -a;" ^
     "        foreach ($line in $arp) {" ^
     "            if ($line -match '^\s*([0-9\.]+)\s+([0-9a-fA-F\-]{17})\s+(dynamic|static)') {" ^
     "                $ip = $Matches[1]; $dev_mac = $Matches[2].Replace('-', ':').ToUpper();" ^
-    "                if ($dev_mac -ne 'FF:FF:FF:FF:FF:FF' -and $dev_mac -ne $mac) {" ^
+    "                if ($ip.StartsWith($subnet_prefix) -and $dev_mac -ne 'FF:FF:FF:FF:FF:FF' -and $dev_mac -ne $mac) {" ^
     "                    $ping_time = 'ERR';" ^
     "                    try { $ping = New-Object System.Net.NetworkInformation.Ping; $res = $ping.Send($ip, 150); if ($res.Status -eq 'Success') { $ping_time = $res.RoundtripTime } } catch {}" ^
     "                    $devices += @{ 'ip' = $ip; 'mac' = $dev_mac; 'vendor' = 'Network Node'; 'is_host' = $false; 'latency_ms' = $ping_time }" ^
