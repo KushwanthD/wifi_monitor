@@ -1221,6 +1221,12 @@ document.addEventListener("DOMContentLoaded", () => {
             agentActiveBadge.classList.remove("hidden");
             agentActiveText.textContent = `Active: ${connectedAgentId}`;
             if (localStatusBanner) localStatusBanner.classList.add("hidden");
+            
+            if (wsStatusText) wsStatusText.textContent = "Agent Telemetry Active";
+            if (wsStatusDot) {
+                wsStatusDot.classList.add("online");
+                wsStatusDot.classList.remove("offline");
+            }
         } else {
             agentInputGroup.classList.remove("hidden");
             agentActiveBadge.classList.add("hidden");
