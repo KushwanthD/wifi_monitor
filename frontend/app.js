@@ -112,6 +112,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const agentActiveBadge = document.getElementById("agent-active-badge");
     const agentActiveText = document.getElementById("agent-active-text");
     const agentInputGroup = document.getElementById("agent-input-group");
+    const onlineAgentsContainer = document.getElementById("online-agents-container");
     let connectedAgentId = localStorage.getItem("wifi_monitor_agent_id") || "";
     
     // Tab 2: WiFi Inspector Elements
@@ -1191,6 +1192,60 @@ document.addEventListener("DOMContentLoaded", () => {
         setDeviceStatus(state.selectedThreatMac, isBlocked ? "unknown" : "blocked");
     });
 
+    function connectAgent(agentId) {
+        connectedAgentId = agentId.trim().toUpperCase();
+        localStorage.setItem("wifi_monitor_agent_id", connectedAgentId);
+        logToConsole(`Connecting to agent stream: ${connectedAgentId}...`, "system");
+        updateAgentUI();
+        
+        // Fetch remote data immediately
+        fetchAgentReport();
+    }
+
+    async function pollActiveAgents() {
+        if (connectedAgentId) {
+            if (onlineAgentsContainer) onlineAgentsContainer.innerHTML = "";
+            return;
+        }
+        
+        try {
+            const res = await fetch(apiHost + "/api/agent/list");
+            if (!res.ok) return;
+            const data = await res.json();
+            
+            // Auto connect if exactly 1 agent is online
+            if (data.length === 1 && !connectedAgentId) {
+                connectAgent(data[0]);
+                return;
+            }
+            
+            if (data.length > 0 && onlineAgentsContainer) {
+                let html = `<div style="color:var(--text-secondary);margin-bottom:4px;font-weight:600;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.05em;">Online Agents:</div>`;
+                data.forEach(id => {
+                    html += `
+                        <button class="btn-online-agent" style="display:flex;align-items:center;gap:6px;background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.15);padding:6px 8px;border-radius:4px;color:var(--color-cyan);cursor:pointer;width:100%;text-align:left;font-weight:500;font-size:0.75rem;transition:all 0.2s;" data-id="${id}">
+                            <span class="status-indicator-dot online" style="margin:0;width:6px;height:6px;box-shadow:var(--glow-green);"></span>
+                            ${id}
+                        </button>
+                    `;
+                });
+                onlineAgentsContainer.innerHTML = html;
+                
+                // Bind click event
+                onlineAgentsContainer.querySelectorAll(".btn-online-agent").forEach(btn => {
+                    btn.addEventListener("click", () => {
+                        const aid = btn.getAttribute("data-id");
+                        connectAgent(aid);
+                    });
+                });
+            } else if (onlineAgentsContainer) {
+                onlineAgentsContainer.innerHTML = "";
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+
     // Bind agent click listeners
     if (agentConnectBtn) {
         agentConnectBtn.addEventListener("click", () => {
@@ -1199,13 +1254,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 alert("Please enter your computer name / Agent ID");
                 return;
             }
-            connectedAgentId = idVal;
-            localStorage.setItem("wifi_monitor_agent_id", connectedAgentId);
-            logToConsole(`Connecting to agent stream: ${connectedAgentId}...`, "system");
-            updateAgentUI();
-            
-            // Fetch remote data immediately
-            fetchAgentReport();
+            connectAgent(idVal);
         });
     }
 
@@ -1246,6 +1295,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Initial triggers
     updateAgentUI();
+    pollActiveAgents();
+    setInterval(pollActiveAgents, 5000);
 
     if (connectedAgentId) {
         // Fetch Agent report and set up 20s poll loop

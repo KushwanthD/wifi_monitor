@@ -472,6 +472,10 @@ def get_agent_report(agent_id: str):
     if aid not in agent_reports:
         raise HTTPException(status_code=404, detail="No scan report found for Agent ID: " + agent_id)
     return agent_reports[aid]
+@app.get("/api/agent/list")
+def list_active_agents():
+    return list(agent_reports.keys())
+
 
 @app.on_event("startup")
 def startup_event():
