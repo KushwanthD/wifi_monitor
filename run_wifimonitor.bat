@@ -42,7 +42,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "        foreach ($line in $netsh) {" ^
     "            if ($line -match '^\s*SSID\s*:\s*(.*)$') { $ssid = $Matches[1].Trim() }" ^
     "            if ($line -match '^\s*AP BSSID\s*:\s*(.*)$') { $bssid = $Matches[1].Trim().ToUpper() }" ^
-    "            if ($line -match '^\s*Signal\s*:\s*(.*)%\s*$') { $signal = [int]$Matches[1].Trim() }" ^
+    "            if ($line -match 'Signal\s*:\s*(\d+)') { $signal = [int]$Matches[1] }" ^
     "            if ($line -match '^\s*Authentication\s*:\s*(.*)$') { $auth = $Matches[1].Trim() }" ^
     "            if ($line -match '^\s*Cipher\s*:\s*(.*)$') { $cipher = $Matches[1].Trim() }" ^
     "            if ($line -match '^\s*Description\s*:\s*(.*)$') { $desc = $Matches[1].Trim() }" ^
