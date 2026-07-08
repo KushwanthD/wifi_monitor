@@ -317,11 +317,22 @@ class DeviceDetails(BaseModel):
     mac: str
     vendor: str
     is_host: bool
+    latency_ms: Optional[Any] = "ERR"
+
+class NearbyNetwork(BaseModel):
+    ssid: str
+    authentication: str
+    encryption: str
+    signal: int
+    channel: str
+    bssid: str
+    radio_type: str
 
 class AgentReport(BaseModel):
     agent_id: str
     wifi: WiFiDetails
     devices: List[DeviceDetails]
+    wifi_scan: Optional[List[NearbyNetwork]] = []
 
 # Dictionary to store latest reports in-memory
 agent_reports = {}
@@ -397,6 +408,7 @@ def receive_agent_report(payload: AgentReport):
             "mac": dev_mac,
             "vendor": vendor,
             "is_host": d.is_host,
+            "latency_ms": d.latency_ms,
             "is_whitelisted": is_whitelisted,
             "is_blacklisted": is_blacklisted
         })
@@ -433,6 +445,7 @@ def receive_agent_report(payload: AgentReport):
     agent_reports[payload.agent_id.upper()] = {
         "wifi": wifi,
         "devices": processed_devices,
+        "wifi_scan": [n.dict() for n in payload.wifi_scan] if payload.wifi_scan else [],
         "security_score": score,
         "alerts": alerts
     }

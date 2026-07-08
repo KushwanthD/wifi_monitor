@@ -61,15 +61,39 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "            if ($active_ips) { $host_ip = $active_ips[0].IPAddress } else { $host_ip = '127.0.0.1' }" ^
     "        }" ^
     "        $devices = @();" ^
-    "        $devices += @{ 'ip' = $host_ip; 'mac' = $mac; 'vendor' = 'This Workstation'; 'is_host' = $true };" ^
+    "        $devices += @{ 'ip' = $host_ip; 'mac' = $mac; 'vendor' = 'This Workstation'; 'is_host' = $true; 'latency_ms' = 0 };" ^
     "        $arp = arp -a;" ^
     "        foreach ($line in $arp) {" ^
     "            if ($line -match '^\s*([0-9\.]+)\s+([0-9a-fA-F\-]{17})\s+(dynamic|static)') {" ^
     "                $ip = $Matches[1]; $dev_mac = $Matches[2].Replace('-', ':').ToUpper();" ^
     "                if ($dev_mac -ne 'FF:FF:FF:FF:FF:FF' -and $dev_mac -ne $mac) {" ^
-    "                    $devices += @{ 'ip' = $ip; 'mac' = $dev_mac; 'vendor' = 'Network Node'; 'is_host' = $false }" ^
+    "                    $ping_time = 'ERR';" ^
+    "                    $ping_res = Test-Connection -ComputerName $ip -Count 1 -TimeoutMilliSec 150 -ErrorAction SilentlyContinue;" ^
+    "                    if ($ping_res) { $ping_time = $ping_res.ResponseTime }" ^
+    "                    $devices += @{ 'ip' = $ip; 'mac' = $dev_mac; 'vendor' = 'Network Node'; 'is_host' = $false; 'latency_ms' = $ping_time }" ^
     "                }" ^
     "            }" ^
+    "        }" ^
+    "        $networks = @();" ^
+    "        $netsh_scan = netsh wlan show networks mode=bssid;" ^
+    "        $current_ssid = ''; $current_auth = 'Open'; $current_cipher = 'None'; $current_bssid = ''; $current_sig = 0; $current_chan = ''; $current_rad = '';" ^
+    "        foreach ($line in $netsh_scan) {" ^
+    "            if ($line -match '^SSID\s+\d+\s*:\s*(.*)$') {" ^
+    "                if ($current_ssid) {" ^
+    "                    $networks += @{ 'ssid' = $current_ssid; 'authentication' = $current_auth; 'encryption' = $current_cipher; 'signal' = $current_sig; 'channel' = $current_chan; 'bssid' = $current_bssid; 'radio_type' = $current_rad }" ^
+    "                }" ^
+    "                $current_ssid = $Matches[1].Trim();" ^
+    "                $current_auth = 'Open'; $current_cipher = 'None'; $current_bssid = ''; $current_sig = 0; $current_chan = ''; $current_rad = '';" ^
+    "            }" ^
+    "            elseif ($line -match '^\s*Authentication\s*:\s*(.*)$') { $current_auth = $Matches[1].Trim() }" ^
+    "            elseif ($line -match '^\s*Encryption\s*:\s*(.*)$') { $current_cipher = $Matches[1].Trim() }" ^
+    "            elseif ($line -match '^\s*BSSID\s+\d+\s*:\s*(.*)$') { $current_bssid = $Matches[1].Trim().ToUpper() }" ^
+    "            elseif ($line -match '^\s*Signal\s*:\s*(\d+)') { $current_sig = [int]$Matches[1] }" ^
+    "            elseif ($line -match '^\s*Channel\s*:\s*(\d+)') { $current_chan = $Matches[1] }" ^
+    "            elseif ($line -match '^\s*Radio type\s*:\s*(.*)$') { $current_rad = $Matches[1].Trim() }" ^
+    "        }" ^
+    "        if ($current_ssid) {" ^
+    "            $networks += @{ 'ssid' = $current_ssid; 'authentication' = $current_auth; 'encryption' = $current_cipher; 'signal' = $current_sig; 'channel' = $current_chan; 'bssid' = $current_bssid; 'radio_type' = $current_rad }" ^
     "        }" ^
     "        $report = @{" ^
     "            'agent_id' = $agent_id;" ^
@@ -79,13 +103,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "                'radio_type' = $radio; 'authentication' = $auth; 'cipher' = $cipher;" ^
     "                'receive_rate' = $receive; 'transmit_rate' = $transmit; 'signal' = $signal" ^
     "            };" ^
-    "            'devices' = $devices" ^
+    "            'devices' = $devices;" ^
+    "            'wifi_scan' = $networks" ^
     "        };" ^
     "        $json = $report | ConvertTo-Json -Depth 5;" ^
     "        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;" ^
     "        $url = 'https://wifi-monitor-x7jk.onrender.com/api/agent/report';" ^
     "        $res = Invoke-RestMethod -Uri $url -Method Post -Body $json -ContentType 'application/json';" ^
-    "        Write-Host ('[' + (Get-Date -Format 'HH:mm:ss') + '] Scan report uploaded successfully to Render. SSID: ' + $ssid) -ForegroundColor Green;" ^
+    "        Write-Host ('[' + (Get-Date -Format 'HH:mm:ss') + '] Scan report uploaded successfully to Render. SSID: ' + $ssid + ' | Devices: ' + $devices.Length + ' | Networks: ' + $networks.Length) -ForegroundColor Green;" ^
     "    } catch {" ^
     "        Write-Host ('[' + (Get-Date -Format 'HH:mm:ss') + '] Scan upload failed: ' + $_.Exception.Message) -ForegroundColor Red;" ^
     "    }" ^

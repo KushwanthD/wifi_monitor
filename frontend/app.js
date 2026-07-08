@@ -892,10 +892,15 @@ document.addEventListener("DOMContentLoaded", () => {
             state.devices = data.devices || [];
             renderDevicesTable();
             
-            // 3. Security Score Ring
+            // 3. WiFi inspector scans
+            state.scanResults = data.wifi_scan || [];
+            renderScanTable();
+            renderChannelChart();
+            
+            // 4. Security Score Ring
             updateSecurityScore(data.security_score || 0);
             
-            // 4. Alerts list
+            // 5. Alerts list
             renderAlerts(data.alerts || []);
             
             logToConsole(`Telemetry synchronized for Agent: ${connectedAgentId}.`, "system");
@@ -1091,6 +1096,25 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!dev) return;
 
         pingTestBtn.disabled = true;
+
+        if (connectedAgentId) {
+            latencyValue.textContent = "??";
+            latencyStatusText.textContent = `Reading remote latency check...`;
+            
+            setTimeout(() => {
+                const latencyVal = dev.latency_ms;
+                if (latencyVal !== undefined && latencyVal !== null && latencyVal !== "ERR") {
+                    latencyValue.textContent = latencyVal + " ms";
+                    latencyStatusText.textContent = `Remote host responded. Latency: ${latencyVal} ms.`;
+                } else {
+                    latencyValue.textContent = "ERR";
+                    latencyStatusText.textContent = `Remote host is unreachable or blocking ICMP pings.`;
+                }
+                pingTestBtn.disabled = false;
+            }, 600);
+            return;
+        }
+
         latencyValue.textContent = "??";
         latencyStatusText.textContent = `Pinging host at ${dev.ip}...`;
         
