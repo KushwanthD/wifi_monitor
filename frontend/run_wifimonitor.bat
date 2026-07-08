@@ -26,8 +26,20 @@ if exist "%~dp0..\backend\main.py" if exist "%~dp0..\backend\venv\Scripts\python
 echo [INFO] Standalone client mode detected. Running native Wi-Fi scan agent...
 echo.
 
+set "DEFAULT_ID=%COMPUTERNAME%"
+set /p "CUSTOM_ID=Enter custom Agent Name to connect [Press ENTER to use '%DEFAULT_ID%']: "
+if "%CUSTOM_ID%"=="" (
+    set "AGENT_ID=%DEFAULT_ID%"
+) else (
+    set "AGENT_ID=%CUSTOM_ID%"
+)
+
+echo.
+echo Your Agent Name is set to: %AGENT_ID%
+echo.
+
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$agent_id = $env:COMPUTERNAME;" ^
+    "$agent_id = '%AGENT_ID%'.Trim();" ^
     "Write-Host 'Your Computer Name (Agent ID) is:' -ForegroundColor Cyan;" ^
     "Write-Host $agent_id -ForegroundColor Green -NoNewline;" ^
     "Write-Host '  (Use this on the website to connect)' -ForegroundColor DarkGray;" ^
