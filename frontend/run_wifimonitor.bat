@@ -34,10 +34,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "Write-Host $agent_id -ForegroundColor Green -NoNewline;" ^
     "Write-Host '  (Use this on the website to connect)' -ForegroundColor DarkGray;" ^
     "Write-Host '';" ^
-    "Write-Host 'Scanning and uploading network reports every 20 seconds. Press Ctrl+C to stop.' -ForegroundColor DarkYellow;" ^
-    "Write-Host '=======================================================================';" ^
+    "Write-Host 'Scanning and uploading network reports every 5 seconds. Press Ctrl+C to stop.' -ForegroundColor DarkYellow;" ^
+    "Write-Host '=======================================================================' -ForegroundColor DarkYellow;" ^
+    "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Wifi { [DllImport(\"wlanapi.dll\")] public static extern uint WlanOpenHandle(uint dwClientVersion, IntPtr pReserved, out uint pdwNegotiatedVersion, out IntPtr phClientHandle); [DllImport(\"wlanapi.dll\")] public static extern uint WlanCloseHandle(IntPtr hClientHandle, IntPtr pReserved); [DllImport(\"wlanapi.dll\")] public static extern uint WlanScan(IntPtr hClientHandle, ref Guid pInterfaceGuid, IntPtr pDot11Ssid, IntPtr pIeData, IntPtr pReserved); }' -ErrorAction SilentlyContinue;" ^
     "while ($true) {" ^
     "    try {" ^
+    "        try {" ^
+    "            $neg = 0; $h = [IntPtr]::Zero;" ^
+    "            $res = [Wifi]::WlanOpenHandle(2, [IntPtr]::Zero, [ref]$neg, [ref]$h);" ^
+    "            if ($res -eq 0) {" ^
+    "                $guid_str = (Get-NetAdapter -Name 'Wi-Fi' -ErrorAction SilentlyContinue).InterfaceGuid;" ^
+    "                if ($guid_str) {" ^
+    "                    $guid = [Guid]::Parse($guid_str);" ^
+    "                    [void][Wifi]::WlanScan($h, [ref]$guid, [IntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero);" ^
+    "                }" ^
+    "                [void][Wifi]::WlanCloseHandle($h, [IntPtr]::Zero);" ^
+    "            }" ^
+    "        } catch {}" ^
     "        $netsh = netsh wlan show interfaces;" ^
     "        $ssid = ''; $bssid = ''; $signal = 0; $auth = 'Open'; $cipher = 'None';" ^
     "        $desc = ''; $mac = ''; $radio = ''; $band = ''; $channel = ''; $receive = '0'; $transmit = '0';" ^
