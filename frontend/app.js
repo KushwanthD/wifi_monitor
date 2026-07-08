@@ -612,6 +612,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // Fetch and compute WiFi scan
     async function fetchWifiScan() {
         if (connectedAgentId) {
+            // Show scan spinner while waiting for agent's fresh scan
+            wifiScanTbody.innerHTML = '<tr><td colspan="6" class="table-loading"><i data-lucide="loader" class="icon-spin"></i> Requesting fresh airspace scan from agent...</td></tr>';
+            safeCreateIcons();
+            // Wait a beat so the agent's next loop picks up the fresh scan
+            await new Promise(r => setTimeout(r, 6000));
             await fetchAgentReport();
             return;
         }

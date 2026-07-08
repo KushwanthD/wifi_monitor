@@ -100,9 +100,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "                }" ^
     "            }" ^
     "        }" ^
-    "        $networks = @();" ^
-    "        Start-Sleep -Seconds 2;" ^
+    "        Start-Sleep -Seconds 4;" ^
     "        $netsh_scan = netsh wlan show networks mode=bssid;" ^
+    "        $networks = @();" ^
     "        $current_ssid = ''; $current_auth = 'Open'; $current_cipher = 'None'; $current_bssid = ''; $current_sig = 0; $current_chan = ''; $current_rad = '';" ^
     "        foreach ($line in $netsh_scan) {" ^
     "            if ($line -match '^\s*SSID\s+\d+\s*:\s*(.*)$') {" ^
