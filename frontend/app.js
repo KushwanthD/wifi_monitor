@@ -700,52 +700,100 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         // Determine if we show 2.4GHz or 5GHz on the chart (default 2.4GHz since it overlaps more, or show both)
-        // Let's create an elegant continuous spectrum on X-axis from 1 to 14 for 2.4GHz.
-        // If 2.4GHz networks is empty but 5GHz is not, we can scan 36-165. Let's build a unified X-axis for 2.4GHz: Channels 1 to 14.
-        const channelsRange = Array.from({ length: 14 }, (_, i) => i + 1);
-        
-        const datasets = nets24.map((net, idx) => {
-            const centerCh = net.channel;
-            const maxSignal = net.signal;
-            
-            // Build a curve (bell shape) centered at the network channel
-            // WiFi channel width spans about 5 channels (+-2 channels)
-            const data = channelsRange.map(ch => {
-                const dist = Math.abs(ch - centerCh);
-                if (dist === 0) return maxSignal;
-                if (dist === 1) return maxSignal * 0.7;
-                if (dist === 2) return maxSignal * 0.35;
-                return 0; // Beyond channel width
+        const use5GHz = (nets24.length === 0 && nets5.length > 0);
+        let channelsRange = [];
+        let datasets = [];
+
+        if (!use5GHz) {
+            channelsRange = Array.from({ length: 14 }, (_, i) => i + 1);
+            datasets = nets24.map((net, idx) => {
+                const centerCh = net.channel;
+                const maxSignal = net.signal;
+                const data = channelsRange.map(ch => {
+                    const dist = Math.abs(ch - centerCh);
+                    if (dist === 0) return maxSignal;
+                    if (dist === 1) return maxSignal * 0.7;
+                    if (dist === 2) return maxSignal * 0.35;
+                    return 0;
+                });
+
+                const colors = [
+                    "rgba(6, 182, 212, 0.45)",  // Cyan
+                    "rgba(16, 185, 129, 0.45)", // Green
+                    "rgba(245, 158, 11, 0.45)",  // Yellow
+                    "rgba(244, 63, 94, 0.45)",   // Red
+                    "rgba(139, 92, 246, 0.45)"   // Purple
+                ];
+                const borderColors = [
+                    "#06b6d4",
+                    "#10b981",
+                    "#f59e0b",
+                    "#f43f5e",
+                    "#8b5cf6"
+                ];
+                const cIdx = idx % colors.length;
+
+                return {
+                    label: net.ssid,
+                    data: data,
+                    borderColor: borderColors[cIdx],
+                    backgroundColor: colors[cIdx],
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0
+                };
             });
+        } else {
+            // Build dynamic 5GHz channels range centered around detected channels
+            const channels = nets5.map(n => n.channel);
+            const minCh = Math.max(36, Math.min(...channels) - 4);
+            const maxCh = Math.min(165, Math.max(...channels) + 4);
+            
+            channelsRange = [];
+            for (let c = minCh; c <= maxCh; c++) {
+                channelsRange.push(c);
+            }
 
-            // Cycle colors
-            const colors = [
-                "rgba(6, 182, 212, 0.45)",  // Cyan
-                "rgba(16, 185, 129, 0.45)", // Green
-                "rgba(245, 158, 11, 0.45)",  // Yellow
-                "rgba(244, 63, 94, 0.45)",   // Red
-                "rgba(139, 92, 246, 0.45)"   // Purple
-            ];
-            const borderColors = [
-                "#06b6d4",
-                "#10b981",
-                "#f59e0b",
-                "#f43f5e",
-                "#8b5cf6"
-            ];
-            const cIdx = idx % colors.length;
+            datasets = nets5.map((net, idx) => {
+                const centerCh = net.channel;
+                const maxSignal = net.signal;
+                const data = channelsRange.map(ch => {
+                    const dist = Math.abs(ch - centerCh);
+                    if (dist === 0) return maxSignal;
+                    if (dist === 1) return maxSignal * 0.7;
+                    if (dist === 2) return maxSignal * 0.35;
+                    return 0;
+                });
 
-            return {
-                label: net.ssid,
-                data: data,
-                borderColor: borderColors[cIdx],
-                backgroundColor: colors[cIdx],
-                borderWidth: 2,
-                fill: true,
-                tension: 0.4,
-                pointRadius: 0
-            };
-        });
+                const colors = [
+                    "rgba(6, 182, 212, 0.45)",
+                    "rgba(16, 185, 129, 0.45)",
+                    "rgba(245, 158, 11, 0.45)",
+                    "rgba(244, 63, 94, 0.45)",
+                    "rgba(139, 92, 246, 0.45)"
+                ];
+                const borderColors = [
+                    "#06b6d4",
+                    "#10b981",
+                    "#f59e0b",
+                    "#f43f5e",
+                    "#8b5cf6"
+                ];
+                const cIdx = idx % colors.length;
+
+                return {
+                    label: net.ssid,
+                    data: data,
+                    borderColor: borderColors[cIdx],
+                    backgroundColor: colors[cIdx],
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0
+                };
+            });
+        }
 
         if (state.activeTab !== "wifi-scan") return; // Avoid chart sizing errors on hidden elements!
 
