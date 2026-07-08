@@ -1,0 +1,25 @@
+# Virtual Environment
+backend/venv/
+venv/
+ENV/
+
+# Python Cache
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local Databases / State
+backend/whitelist.json
+backend/blacklist.json
+
+# IDE Settings
+.vscode/
+.idea/
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Log Files
+*.log

@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SentryWiFi - Security Intelligence Console</title>
+    <!-- Outfit Google Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Style CSS -->
+    <link rel="stylesheet" href="/static/style.css?v=4">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <div class="logo-icon">
+                    <i data-lucide="shield-alert" class="icon-pulse"></i>
+                </div>
+                <div class="logo-text">
+                    <h2>SENTRY<span>WIFI</span></h2>
+                    <span class="sub-logo">Security Monitor</span>
+                </div>
+            </div>
+            
+            <nav class="nav-menu">
+                <button class="nav-item active" data-tab="dashboard">
+                    <i data-lucide="layout-dashboard"></i>
+                    <span>Dashboard</span>
+                </button>
+                <button class="nav-item" data-tab="wifi-scan">
+                    <i data-lucide="wifi"></i>
+                    <span>WiFi Inspector</span>
+                </button>
+                <button class="nav-item" data-tab="devices">
+                    <i data-lucide="laptop"></i>
+                    <span>Subnet Devices</span>
+                </button>
+                <button class="nav-item" data-tab="threat-center">
+                    <i data-lucide="shield-alert"></i>
+                    <span>Threat Center</span>
+                </button>
+                <button class="nav-item" data-tab="logs">
+                    <i data-lucide="terminal"></i>
+                    <span>Console Log</span>
+                </button>
+            </nav>
+            
+            <div class="connection-status-widget">
+                <div class="status-indicator-dot online"></div>
+                <div class="status-widget-info">
+                    <span class="widget-title">Monitor Active</span>
+                    <span class="widget-desc" id="ws-status-text">Connecting WebSocket...</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="app-header">
+                <div class="header-title">
+                    <h1 id="current-tab-title">Security Dashboard</h1>
+                    <p id="current-tab-subtitle">Real-time WiFi threats and configuration audit</p>
+                </div>
+                <div class="header-actions">
+                    <div class="network-badge" id="header-connection-badge">
+                        <i data-lucide="wifi-off"></i>
+                        <span>Scanning Adapter...</span>
+                    </div>
+                    <button class="btn btn-primary" id="global-refresh-btn">
+                        <i data-lucide="refresh-cw" id="refresh-icon"></i>
+                        <span>Audit Now</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Scrollable Viewport -->
+            <div class="viewport">
+                
+                <!-- TAB 1: DASHBOARD -->
+                <div class="tab-panel active" id="panel-dashboard">
+                    <div class="dashboard-grid">
+                        
+                        <!-- Left Block: Security Score Ring -->
+                        <div class="card card-score glassmorphism">
+                            <div class="card-header">
+                                <h3>Security Profile</h3>
+                                <span class="badge badge-outline">Threat Index</span>
+                            </div>
+                            <div class="score-container">
+                                <div class="score-ring">
+                                    <svg viewBox="0 0 100 100">
+                                        <circle class="ring-bg" cx="50" cy="50" r="40"></circle>
+                                        <circle class="ring-fg" id="security-ring-progress" cx="50" cy="50" r="40" style="stroke-dashoffset: 251.2;"></circle>
+                                    </svg>
+                                    <div class="score-value">
+                                        <span id="score-number">--</span>
+                                        <span class="score-unit">%</span>
+                                    </div>
+                                </div>
+                                <div class="score-label" id="score-text">Calculating...</div>
+                            </div>
+                            <div class="score-breakdown">
+                                <div class="breakdown-item">
+                                    <span class="lbl">Status</span>
+                                    <span class="val" id="profile-status">--</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="lbl">Adapter</span>
+                                    <span class="val" id="profile-adapter" style="text-align: right; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Wireless hardware controller name">--</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="lbl">MAC Address</span>
+                                    <span class="val font-mono" id="profile-mac" style="font-size:0.8rem;">--</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="lbl">Radio Type</span>
+                                    <span class="val" id="profile-radio">--</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="lbl">Security</span>
+                                    <span class="val" id="profile-auth" style="text-align: right; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">--</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="lbl">Cipher</span>
+                                    <span class="val" id="profile-cipher">--</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="lbl">Gateway IP</span>
+                                    <span class="val" id="profile-gateway">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Block: Connection Details & Public Exposure -->
+                        <div class="card card-network-details glassmorphism">
+                            <div class="card-header">
+                                <h3>Active Connection Details</h3>
+                                <i data-lucide="info" class="text-muted"></i>
+                            </div>
+                            <div class="info-grid">
+                                <div class="info-box">
+                                    <span class="info-lbl">Active SSID</span>
+                                    <span class="info-val text-glow-cyan" id="conn-ssid">--</span>
+                                </div>
+                                <div class="info-box">
+                                    <span class="info-lbl">Access Point BSSID</span>
+                                    <span class="info-val font-mono" id="conn-bssid">--</span>
+                                </div>
+                                <div class="info-box">
+                                    <span class="info-lbl">Signal Strength</span>
+                                    <span class="info-val" id="conn-signal">--</span>
+                                </div>
+                                <div class="info-box">
+                                    <span class="info-lbl">Channel / Band</span>
+                                    <span class="info-val" id="conn-channel-band">--</span>
+                                </div>
+                                <div class="info-box">
+                                    <span class="info-lbl">Link Speed</span>
+                                    <span class="info-val" id="conn-rate">--</span>
+                                </div>
+                                <div class="info-box">
+                                    <span class="info-lbl">Public IP</span>
+                                    <span class="info-val" id="pub-ip">--</span>
+                                </div>
+                                <div class="info-box full-width">
+                                    <span class="info-lbl">ISP / External Provider</span>
+                                    <span class="info-val" id="pub-isp">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Full Width Block: Security Warnings & Recommendations -->
+                        <div class="card card-alerts glassmorphism full-row">
+                            <div class="card-header">
+                                <h3>Security Audit Logs</h3>
+                                <span class="badge" id="alert-count-badge">0 Alerts</span>
+                            </div>
+                            <div class="alerts-list" id="alerts-container">
+                                <!-- Dynamic alerts load here -->
+                                <div class="empty-state">
+                                    <i data-lucide="shield-check" class="text-success"></i>
+                                    <p>No active threats or vulnerabilities found on this network.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- TAB 2: WIFI INSPECTOR -->
+                <div class="tab-panel" id="panel-wifi-scan">
+                    <div class="inspector-grid">
+                        
+                        <!-- Signal chart -->
+                        <div class="card card-chart glassmorphism">
+                            <div class="card-header">
+                                <h3>Channel Occupancy & Signal Strengths</h3>
+                                <span class="text-muted text-sm">Avoid overlapping channels for peak performance</span>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="wifi-channel-chart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Scan Table -->
+                        <div class="card card-scan-table glassmorphism">
+                            <div class="card-header">
+                                <h3>Detected Nearby Networks</h3>
+                                <button class="btn btn-secondary btn-sm" id="scan-wifi-btn">
+                                    <i data-lucide="refresh-cw"></i> Scan Airspace
+                                </button>
+                            </div>
+                            <div class="table-wrapper">
+                                <table class="scanned-nets-table">
+                                    <thead>
+                                        <tr>
+                                            <th>SSID</th>
+                                            <th>BSSID</th>
+                                            <th>Channel</th>
+                                            <th>Band</th>
+                                            <th>Auth / Encryption</th>
+                                            <th>Signal</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="wifi-scan-tbody">
+                                        <tr>
+                                            <td colspan="6" class="table-loading">
+                                                <i data-lucide="loader" class="icon-spin"></i> Initializing scan...
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- TAB 3: SUBNET DEVICES -->
+                <div class="tab-panel" id="panel-devices">
+                    <div class="devices-grid">
+                        
+                        <!-- Stats Summary -->
+                        <div class="device-stats-bar">
+                            <div class="card stat-card glassmorphism">
+                                <span class="stat-lbl">Active Hosts</span>
+                                <span class="stat-val text-glow-cyan" id="stat-active-hosts">--</span>
+                            </div>
+                            <div class="card stat-card glassmorphism">
+                                <span class="stat-lbl">Whitelisted</span>
+                                <span class="stat-val text-glow-green" id="stat-whitelisted">--</span>
+                            </div>
+                            <div class="card stat-card glassmorphism">
+                                <span class="stat-lbl">Unauthorized Threats</span>
+                                <span class="stat-val text-glow-red" id="stat-unauthorized">--</span>
+                            </div>
+                        </div>
+
+                        <!-- Devices Table -->
+                        <div class="card card-devices-table glassmorphism">
+                            <div class="card-header">
+                                <h3>Network Devices Inventory</h3>
+                                <button class="btn btn-secondary btn-sm" id="scan-devices-btn">
+                                    <i data-lucide="search"></i> Map Subnet
+                                </button>
+                            </div>
+                            <div class="table-wrapper">
+                                <table class="devices-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Device Status</th>
+                                            <th>IP Address</th>
+                                            <th>MAC Address</th>
+                                            <th>OUI Vendor</th>
+                                            <th>Host Device</th>
+                                            <th>Network Access Controls</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="devices-tbody">
+                                        <tr>
+                                            <td colspan="6" class="table-loading">
+                                                <i data-lucide="loader" class="icon-spin"></i> Locating network nodes...
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- TAB: THREAT CENTER -->
+                <div class="tab-panel" id="panel-threat-center">
+                    <div class="threat-center-grid">
+                        
+                        <!-- Left Block: Device Inspector -->
+                        <div class="threat-left-col">
+                            <!-- Device Selector -->
+                            <div class="card card-device-selector glassmorphism">
+                                <div class="card-header">
+                                    <h3>Target Device Selection</h3>
+                                    <i data-lucide="shield-alert" class="text-muted"></i>
+                                </div>
+                                <div class="form-group" style="margin-bottom:1.5rem;">
+                                    <label for="threat-device-select" class="lbl-desc" style="display:block;margin-bottom:0.5rem;font-size:0.8rem;color:var(--text-secondary);">Choose an active subnet node to audit:</label>
+                                    <select id="threat-device-select" class="input-select-obsidian">
+                                        <option value="">-- No Devices Located --</option>
+                                    </select>
+                                </div>
+                                <div class="info-grid-simple">
+                                    <div class="info-box-sm">
+                                        <span class="info-lbl-sm">Active IP</span>
+                                        <span class="info-val-sm" id="threat-ip">--</span>
+                                    </div>
+                                    <div class="info-box-sm">
+                                        <span class="info-lbl-sm">Physical MAC</span>
+                                        <span class="info-val-sm font-mono" id="threat-mac">--</span>
+                                    </div>
+                                    <div class="info-box-sm">
+                                        <span class="info-lbl-sm">Vendor OUI</span>
+                                        <span class="info-val-sm" id="threat-vendor">--</span>
+                                    </div>
+                                    <div class="info-box-sm">
+                                        <span class="info-lbl-sm">Current Status</span>
+                                        <span class="info-val-sm" id="threat-status-badge">--</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Connection Quality & Latency -->
+                            <div class="card card-threat-metrics glassmorphism" style="margin-top:1.75rem;">
+                                <div class="card-header">
+                                    <h3>Subnet Connection Telemetry</h3>
+                                    <button class="btn btn-secondary btn-sm" id="ping-test-btn" disabled>
+                                        <i data-lucide="activity"></i> Test Ping
+                                    </button>
+                                </div>
+                                <div class="latency-display">
+                                    <div class="latency-gauge">
+                                        <span id="latency-value">--</span>
+                                        <span class="latency-unit">ms</span>
+                                    </div>
+                                    <div class="latency-status" id="latency-status-text">Select a device to test latency</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Block: Threat Remediation & Router Controls -->
+                        <div class="threat-right-col">
+                            
+                            <!-- Threat Remediation Controls -->
+                            <div class="card card-threat-actions glassmorphism">
+                                <div class="card-header">
+                                    <h3>Threat Remediation Controls</h3>
+                                    <span class="badge badge-outline">Local Policy</span>
+                                </div>
+                                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1.5rem;line-height:1.5;">
+                                    Configure authorization policy for this MAC node. Blacklisting heavily penalizes network security scores and triggers high-severity visual intruder alarms.
+                                </p>
+                                <div class="remediation-btn-row">
+                                    <button class="btn btn-secondary" id="threat-approve-btn" style="flex:1;" disabled>
+                                        <i data-lucide="check-circle"></i> Approve Whitelist
+                                    </button>
+                                    <button class="btn btn-outline-danger" id="threat-block-btn" style="flex:1;" disabled>
+                                        <i data-lucide="slash"></i> Block Blacklist
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Router MAC Blocking Guide -->
+                            <div class="card card-router-guide glassmorphism" style="margin-top:1.75rem;">
+                                <div class="card-header">
+                                    <h3>Router MAC Address Blocking Instructions</h3>
+                                    <i data-lucide="info" class="text-glow-cyan"></i>
+                                </div>
+                                <div class="router-guide-body">
+                                    <p class="guide-intro">
+                                        Legitimately eject and disconnect this device off the WiFi network at the hardware level:
+                                    </p>
+                                    <ol class="step-list">
+                                        <li>
+                                            <span class="step-num">1</span>
+                                            <span class="step-desc">
+                                                Open router portal: <a href="#" id="router-gateway-link" target="_blank" class="text-glow-cyan font-mono">http://192.168.1.1</a>
+                                            </span>
+                                        </li>
+                                        <li>
+                                            <span class="step-num">2</span>
+                                            <span class="step-desc">Log in with your administrator account credentials.</span>
+                                        </li>
+                                        <li>
+                                            <span class="step-num">3</span>
+                                            <span class="step-desc">Navigate to **Wireless -> Access Control** or **MAC Filtering**.</span>
+                                        </li>
+                                        <li>
+                                            <span class="step-num">4</span>
+                                            <span class="step-desc">Set Filtering Mode to **Blacklist** (or "Block Access").</span>
+                                        </li>
+                                        <li>
+                                            <span class="step-num">5</span>
+                                            <span class="step-desc">
+                                                Add rule with MAC address: <strong class="font-mono text-glow-red" id="router-block-mac-val">--</strong>
+                                            </span>
+                                        </li>
+                                        <li>
+                                            <span class="step-num">6</span>
+                                            <span class="step-desc">Apply settings. The router will instantly ban and disconnect the device.</span>
+                                        </li>
+                                    </ol>
+                                </div>
+                            </div>
+
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- TAB 4: CONSOLE LOG -->
+                <div class="tab-panel" id="panel-logs">
+                    <div class="logs-panel-layout">
+                        <div class="card card-console-log glassmorphism">
+                            <div class="card-header">
+                                <h3>Live Monitor Event Stream</h3>
+                                <button class="btn btn-sm btn-outline-danger" id="clear-console-btn">Clear Output</button>
+                            </div>
+                            <div class="console-box" id="console-stream">
+                                <div class="console-line system-line">[SYSTEM] Console monitor online. Listening to security logs...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div class="toast-container" id="toast-area"></div>
+    
+    <script src="/static/app.js?v=4"></script>
+</body>
+</html>
