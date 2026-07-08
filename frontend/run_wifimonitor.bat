@@ -115,5 +115,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "    } catch {" ^
     "        Write-Host ('[' + (Get-Date -Format 'HH:mm:ss') + '] Scan upload failed: ' + $_.Exception.Message) -ForegroundColor Red;" ^
     "    }" ^
-    "    Start-Sleep -Seconds 20;" ^
+    "    Start-Sleep -Seconds 5;" ^
     "}"

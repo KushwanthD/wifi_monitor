@@ -334,8 +334,23 @@ class AgentReport(BaseModel):
     devices: List[DeviceDetails]
     wifi_scan: Optional[List[NearbyNetwork]] = []
 
-# Dictionary to store latest reports in-memory
-agent_reports = {}
+REPORTS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "agent_reports.json"))
+
+def load_reports():
+    if os.path.exists(REPORTS_FILE):
+        try:
+            with open(REPORTS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_reports(reports):
+    try:
+        with open(REPORTS_FILE, "w") as f:
+            json.dump(reports, f, indent=4)
+    except Exception as e:
+        print(f"Error saving reports: {e}")
 
 @app.post("/api/agent/report")
 def receive_agent_report(payload: AgentReport):
@@ -457,24 +472,29 @@ def receive_agent_report(payload: AgentReport):
         })
         
     # Store report
-    agent_reports[payload.agent_id.upper()] = {
+    reports = load_reports()
+    reports[payload.agent_id.upper()] = {
         "wifi": wifi,
         "devices": processed_devices,
         "wifi_scan": [n.dict() for n in payload.wifi_scan] if payload.wifi_scan else [],
         "security_score": score,
         "alerts": alerts
     }
+    save_reports(reports)
     return {"status": "success"}
 
 @app.get("/api/agent/report/{agent_id}")
 def get_agent_report(agent_id: str):
     aid = agent_id.upper()
-    if aid not in agent_reports:
+    reports = load_reports()
+    if aid not in reports:
         raise HTTPException(status_code=404, detail="No scan report found for Agent ID: " + agent_id)
-    return agent_reports[aid]
+    return reports[aid]
+
 @app.get("/api/agent/list")
 def list_active_agents():
-    return list(agent_reports.keys())
+    reports = load_reports()
+    return list(reports.keys())
 
 
 @app.on_event("startup")

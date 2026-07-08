@@ -1299,9 +1299,9 @@ document.addEventListener("DOMContentLoaded", () => {
     setInterval(pollActiveAgents, 5000);
 
     if (connectedAgentId) {
-        // Fetch Agent report and set up 20s poll loop
+        // Fetch Agent report and set up 5s poll loop
         fetchAgentReport();
-        setInterval(fetchAgentReport, 20000);
+        setInterval(fetchAgentReport, 5000);
     } else {
         // Normal local dashboard sequence
         detectLocalServer().then(() => {
