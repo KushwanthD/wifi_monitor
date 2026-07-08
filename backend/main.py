@@ -388,7 +388,9 @@ def receive_agent_report(payload: AgentReport):
     blacklist = load_blacklist()
     
     processed_devices = []
-    intruders = 0
+    blacklisted_count = 0
+    unwhitelisted_count = 0
+    
     for d in payload.devices:
         dev_mac = d.mac.upper()
         is_whitelisted = dev_mac in whitelist
@@ -413,20 +415,33 @@ def receive_agent_report(payload: AgentReport):
             "is_blacklisted": is_blacklisted
         })
         
-        if is_blacklisted:
-            score -= 30
-            intruders += 1
+        if not d.is_host:
+            if is_blacklisted:
+                blacklisted_count += 1
+            elif not is_whitelisted:
+                unwhitelisted_count += 1
+                
+    if blacklisted_count > 0:
+        score -= (30 * blacklisted_count)
+    if unwhitelisted_count > 0:
+        score -= min(10 * unwhitelisted_count, 30)
             
     # Cap score
     score = max(0, min(100, score))
     
     # Compile alerts
     alerts = []
-    if intruders > 0:
+    if blacklisted_count > 0:
         alerts.append({
             "category": "Blacklisted Node Active",
             "severity": "critical",
-            "message": f"DETECTED {intruders} BLACKLISTED INTRUDER(S) ACTIVE ON YOUR WIFI! Eject these nodes immediately to protect subnet integrity."
+            "message": f"DETECTED {blacklisted_count} BLACKLISTED INTRUDER(S) ACTIVE ON YOUR WIFI! Eject these nodes immediately to protect subnet integrity."
+        })
+    if unwhitelisted_count > 0:
+        alerts.append({
+            "category": "Intruder Alert",
+            "severity": "high",
+            "message": f"Detected {unwhitelisted_count} unauthorized device(s) on your subnet. Please review the network devices and approve or block them."
         })
     if not password_protected:
         alerts.append({

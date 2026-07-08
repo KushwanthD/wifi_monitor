@@ -499,6 +499,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Fetch Subnet Devices
     async function fetchDevices() {
+        if (connectedAgentId) {
+            await fetchAgentReport();
+            return;
+        }
         try {
             const res = await fetch(apiHost + "/api/network/devices");
             const data = await res.json();
@@ -606,6 +610,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Fetch and compute WiFi scan
     async function fetchWifiScan() {
+        if (connectedAgentId) {
+            await fetchAgentReport();
+            return;
+        }
         wifiScanTbody.innerHTML = '<tr><td colspan="6" class="table-loading"><i data-lucide="loader" class="icon-spin"></i> Inspecting WiFi frequencies...</td></tr>';
         safeCreateIcons();
 
