@@ -64,6 +64,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "        }" ^
     "        $ip_parts = $host_ip.Split('.');" ^
     "        $subnet_prefix = $ip_parts[0] + '.' + $ip_parts[1] + '.' + $ip_parts[2] + '.';" ^
+    "        for ($i = 1; $i -le 254; $i++) {" ^
+    "            $sweep_ip = $subnet_prefix + $i;" ^
+    "            if ($sweep_ip -ne $host_ip) {" ^
+    "                $p = New-Object System.Net.NetworkInformation.Ping;" ^
+    "                [void]$p.SendAsync($sweep_ip, 100, $null);" ^
+    "            }" ^
+    "        }" ^
+    "        Start-Sleep -Milliseconds 150;" ^
     "        $devices = @();" ^
     "        $devices += @{ 'ip' = $host_ip; 'mac' = $mac; 'vendor' = 'This Workstation'; 'is_host' = $true; 'latency_ms' = 0 };" ^
     "        $arp = arp -a;" ^
