@@ -13,7 +13,7 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Style CSS -->
-    <link rel="stylesheet" href="/static/style.css?v=4">
+    <link rel="stylesheet" href="/static/style.css?v=5">
 </head>
 <body>
     <div class="app-container">
@@ -127,6 +127,18 @@
                                 <div class="breakdown-item">
                                     <span class="lbl">Security</span>
                                     <span class="val" id="profile-auth" style="text-align: right; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">--</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="lbl">Password Protected</span>
+                                    <span class="val" id="profile-password">--</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="lbl">Security Level</span>
+                                    <span class="val" id="profile-level">--</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="lbl">Strength</span>
+                                    <span class="val" id="profile-strength">--</span>
                                 </div>
                                 <div class="breakdown-item">
                                     <span class="lbl">Cipher</span>
@@ -446,6 +458,6 @@
     <!-- Toast Notifications Container -->
     <div class="toast-container" id="toast-area"></div>
     
-    <script src="/static/app.js?v=4"></script>
+    <script src="/static/app.js?v=5"></script>
 </body>
 </html>

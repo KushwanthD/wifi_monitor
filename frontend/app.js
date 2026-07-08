@@ -53,6 +53,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const profileMac = document.getElementById("profile-mac");
     const profileRadio = document.getElementById("profile-radio");
     const profileAuth = document.getElementById("profile-auth");
+    const profilePassword = document.getElementById("profile-password");
+    const profileLevel = document.getElementById("profile-level");
+    const profileStrength = document.getElementById("profile-strength");
     const connSsid = document.getElementById("conn-ssid");
     const connBssid = document.getElementById("conn-bssid");
     const connSignal = document.getElementById("conn-signal");
@@ -298,6 +301,25 @@ document.addEventListener("DOMContentLoaded", () => {
             if (profileRadio) profileRadio.textContent = data.radio_type || "--";
             if (profileAuth) profileAuth.textContent = data.authentication || "--";
             if (profileCipher) profileCipher.textContent = data.cipher || "--";
+            
+            if (profilePassword) {
+                profilePassword.textContent = data.password_protected ? "Yes (Secured)" : "No (Open / Vulnerable)";
+                profilePassword.className = data.password_protected ? "val text-glow-green" : "val text-glow-red";
+            }
+            if (profileLevel) {
+                profileLevel.textContent = data.security_level || "--";
+                if (data.security_level && data.security_level.includes("Strong")) {
+                    profileLevel.className = "val text-glow-green";
+                } else if (data.security_level && data.security_level.includes("Standard")) {
+                    profileLevel.className = "val text-glow-cyan";
+                } else {
+                    profileLevel.className = "val text-glow-yellow";
+                }
+            }
+            if (profileStrength) {
+                profileStrength.textContent = data.encryption_strength || "--";
+                profileStrength.className = data.password_protected ? "val text-glow-green" : "val text-glow-red";
+            }
         } else {
             headerConnectionBadge.className = "network-badge disconnected";
             headerConnectionBadge.innerHTML = `<i data-lucide="wifi-off"></i> <span>Wlan Disconnected</span>`;
@@ -317,6 +339,19 @@ document.addEventListener("DOMContentLoaded", () => {
             if (profileRadio) profileRadio.textContent = "--";
             if (profileAuth) profileAuth.textContent = "--";
             if (profileCipher) profileCipher.textContent = "None";
+            
+            if (profilePassword) {
+                profilePassword.textContent = "--";
+                profilePassword.className = "val";
+            }
+            if (profileLevel) {
+                profileLevel.textContent = "--";
+                profileLevel.className = "val";
+            }
+            if (profileStrength) {
+                profileStrength.textContent = "--";
+                profileStrength.className = "val";
+            }
         }
         safeCreateIcons();
     }

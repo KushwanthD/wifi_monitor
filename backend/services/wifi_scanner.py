@@ -51,6 +51,37 @@ class WiFiScanner:
             if state != "connected":
                 return {"status": "disconnected", "details": details}
 
+            # Determine security details
+            auth = details.get("authentication", "Open")
+            auth_upper = auth.upper()
+            
+            password_protected = True
+            security_level = "Unknown"
+            encryption_strength = "Unknown"
+            security_details = "Password Protected"
+
+            if "OPEN" in auth_upper or "NONE" in auth_upper or auth_upper == "":
+                password_protected = False
+                security_level = "Insecure / Public"
+                encryption_strength = "None (Vulnerable)"
+                security_details = "Open (Unencrypted)"
+            elif "WEP" in auth_upper:
+                security_level = "Weak / Legacy"
+                encryption_strength = "WEP (Vulnerable to exploits)"
+                security_details = "Password Protected (WEP)"
+            elif "WPA3" in auth_upper:
+                security_level = "Strong / Modern"
+                encryption_strength = "High (AES-GCMP/CCMP)"
+                security_details = "Password Protected (WPA3)"
+            elif "WPA2" in auth_upper:
+                security_level = "Standard / Secure"
+                encryption_strength = "Medium-High (AES-CCMP)"
+                security_details = "Password Protected (WPA2)"
+            elif "WPA" in auth_upper:
+                security_level = "Legacy / Deprecated"
+                encryption_strength = "Medium-Low (TKIP)"
+                security_details = "Password Protected (WPA)"
+
             # Map the parsed fields to clean standard keys
             return {
                 "status": "connected",
@@ -62,11 +93,15 @@ class WiFiScanner:
                 "band": details.get("band", ""),
                 "channel": details.get("channel", ""),
                 "radio_type": details.get("radio_type", ""),
-                "authentication": details.get("authentication", "Open"),
+                "authentication": auth,
                 "cipher": details.get("cipher", "None"),
                 "receive_rate": details.get("receive_rate_(mbps)", "0"),
                 "transmit_rate": details.get("transmit_rate_(mbps)", "0"),
                 "signal": int(details.get("signal", "0").replace("%", "").strip()) if "signal" in details else 0,
+                "password_protected": password_protected,
+                "security_level": security_level,
+                "encryption_strength": encryption_strength,
+                "security_details": security_details,
             }
 
         except Exception as e:
