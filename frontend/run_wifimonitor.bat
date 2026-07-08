@@ -67,10 +67,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "            if ($line -match '^\s*([0-9\.]+)\s+([0-9a-fA-F\-]{17})\s+(dynamic|static)') {" ^
     "                $ip = $Matches[1]; $dev_mac = $Matches[2].Replace('-', ':').ToUpper();" ^
     "                if ($dev_mac -ne 'FF:FF:FF:FF:FF:FF' -and $dev_mac -ne $mac) {" ^
-    "                    $ping_time = 'ERR';" ^
-    "                    $ping_res = Test-Connection -ComputerName $ip -Count 1 -TimeoutMilliSec 150 -ErrorAction SilentlyContinue;" ^
-    "                    if ($ping_res) { $ping_time = $ping_res.ResponseTime }" ^
-    "                    $devices += @{ 'ip' = $ip; 'mac' = $dev_mac; 'vendor' = 'Network Node'; 'is_host' = $false; 'latency_ms' = $ping_time }" ^
+    "                    $ping_time = 'ERR'; try { $ping = New-Object System.Net.NetworkInformation.Ping; $res = $ping.Send($ip, 150); if ($res.Status -eq 'Success') { $ping_time = $res.RoundtripTime } } catch {}; $devices += @{ 'ip' = $ip; 'mac' = $dev_mac; 'vendor' = 'Network Node'; 'is_host' = $false; 'latency_ms' = $ping_time }" ^
     "                }" ^
     "            }" ^
     "        }" ^
