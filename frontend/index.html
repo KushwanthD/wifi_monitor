@@ -13,7 +13,7 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Style CSS -->
-    <link rel="stylesheet" href="/static/style.css?v=5">
+    <link rel="stylesheet" href="/static/style.css?v=6">
 </head>
 <body>
     <div class="app-container">
@@ -83,6 +83,16 @@
 
             <!-- Scrollable Viewport -->
             <div class="viewport">
+                <!-- Local Scanner Status Banner -->
+                <div id="local-status-banner" class="banner-warning hidden">
+                    <div class="banner-content">
+                        <i data-lucide="shield-alert" class="banner-icon"></i>
+                        <span class="banner-text">LOCAL SCANNER INACTIVE. To enable live Wi-Fi security auditing on this PC, run the local scanner script.</span>
+                        <a href="/static/run_wifimonitor.bat" download class="btn btn-primary btn-sm banner-btn">
+                            <i data-lucide="download"></i> Download Scanner
+                        </a>
+                    </div>
+                </div>
                 
                 <!-- TAB 1: DASHBOARD -->
                 <div class="tab-panel active" id="panel-dashboard">
@@ -458,6 +468,6 @@
     <!-- Toast Notifications Container -->
     <div class="toast-container" id="toast-area"></div>
     
-    <script src="/static/app.js?v=5"></script>
+    <script src="/static/app.js?v=6"></script>
 </body>
 </html>

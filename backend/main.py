@@ -12,7 +12,7 @@ from services.wifi_scanner import WiFiScanner
 from services.network_scanner import NetworkScanner
 from services.security_auditor import SecurityAuditor
 
-app = FastAPI(title="WiFi Security Monitor API")
+app = FastAPI(title="WiFi Monitor API")
 
 # Enable CORS for development
 app.add_middleware(
@@ -22,6 +22,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Allow private network access (preflight and requests from public Render site)
+@app.middleware("http")
+async def add_private_network_headers(request, call_next):
+    # Handle preflight OPTIONS requests for private networks
+    if request.method == "OPTIONS":
+        from fastapi.responses import Response
+        response = Response()
+        response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+        return response
+        
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
 
 FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
 WHITELIST_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "whitelist.json"))

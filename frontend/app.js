@@ -25,6 +25,45 @@ document.addEventListener("DOMContentLoaded", () => {
         selectedThreatMac: ""
     };
 
+    let apiHost = "";
+    const localStatusBanner = document.getElementById("local-status-banner");
+
+    async function detectLocalServer() {
+        if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+            apiHost = "";
+            if (localStatusBanner) localStatusBanner.classList.add("hidden");
+            return true;
+        }
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 1200);
+            
+            const res = await fetch("http://127.0.0.1:8000/api/wifi/connection", {
+                signal: controller.signal,
+                headers: { "Accept": "application/json" }
+            });
+            clearTimeout(timeoutId);
+            
+            if (res.ok) {
+                const data = await res.json();
+                if (data && !data.error) {
+                    apiHost = "http://127.0.0.1:8000";
+                    if (localStatusBanner) localStatusBanner.classList.add("hidden");
+                    logToConsole("Local scan agent auto-detected at 127.0.0.1:8000! Connecting...", "system");
+                    return true;
+                }
+            }
+        } catch (e) {
+            // Not running
+        }
+
+        apiHost = "";
+        if (localStatusBanner) localStatusBanner.classList.remove("hidden");
+        logToConsole("Local scan agent is offline. Visualizing cloud mock mode.", "system");
+        return false;
+    }
+
     // DOM Elements
     const navItems = document.querySelectorAll(".nav-item");
     const tabPanels = document.querySelectorAll(".tab-panel");
@@ -213,9 +252,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Connect WebSocket
     function connectWS() {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const host = window.location.host || "localhost:8000";
-        const wsUrl = `${protocol}//${host}/ws/monitor`;
+        let wsUrl;
+        if (apiHost) {
+            const wsProtocol = apiHost.startsWith("https") ? "wss:" : "ws:";
+            const wsDomain = apiHost.replace(/^https?:\/\//, "");
+            wsUrl = `${wsProtocol}//${wsDomain}/ws/monitor`;
+        } else {
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const host = window.location.host || "localhost:8000";
+            wsUrl = `${protocol}//${host}/ws/monitor`;
+        }
 
         logToConsole("Initializing WebSocket connection to " + wsUrl);
         state.wsConn = new WebSocket(wsUrl);
@@ -268,7 +314,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Fetch active WiFi connection
     async function fetchWifiConnection() {
         try {
-            const res = await fetch("/api/wifi/connection");
+            const res = await fetch(apiHost + "/api/wifi/connection");
             const data = await res.json();
             if (!res.ok || data.detail || data.error) {
                 throw new Error(data.detail || data.error || `Server error (${res.status})`);
@@ -358,7 +404,7 @@ document.addEventListener("DOMContentLoaded", () => {
        // Fetch Whitelist
     async function fetchWhitelist() {
         try {
-            const res = await fetch("/api/whitelist");
+            const res = await fetch(apiHost + "/api/whitelist");
             state.whitelist = await res.json();
         } catch (e) {
             console.error("Error fetching whitelist", e);
@@ -368,7 +414,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Fetch Blacklist
     async function fetchBlacklist() {
         try {
-            const res = await fetch("/api/blacklist");
+            const res = await fetch(apiHost + "/api/blacklist");
             state.blacklist = await res.json();
         } catch (e) {
             console.error("Error fetching blacklist", e);
@@ -384,7 +430,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (!updatedList.includes(mac)) updatedList.push(mac);
                 logToConsole(`Approving and Whitelisting MAC: ${mac}`);
                 
-                const res = await fetch("/api/whitelist", {
+                const res = await fetch(apiHost + "/api/whitelist", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ macs: updatedList })
@@ -399,7 +445,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (!updatedList.includes(mac)) updatedList.push(mac);
                 logToConsole(`Banning and Blacklisting MAC: ${mac}`, "event-alert");
                 
-                const res = await fetch("/api/blacklist", {
+                const res = await fetch(apiHost + "/api/blacklist", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ macs: updatedList })
@@ -414,12 +460,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 const updatedWhite = state.whitelist.filter(m => m !== mac);
                 const updatedBlack = state.blacklist.filter(m => m !== mac);
                 
-                await fetch("/api/whitelist", {
+                await fetch(apiHost + "/api/whitelist", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ macs: updatedWhite })
                 });
-                await fetch("/api/blacklist", {
+                await fetch(apiHost + "/api/blacklist", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ macs: updatedBlack })
@@ -445,7 +491,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Fetch Subnet Devices
     async function fetchDevices() {
         try {
-            const res = await fetch("/api/network/devices");
+            const res = await fetch(apiHost + "/api/network/devices");
             const data = await res.json();
             
             if (!res.ok || data.error || data.detail) {
@@ -555,7 +601,7 @@ document.addEventListener("DOMContentLoaded", () => {
         safeCreateIcons();
 
         try {
-            const res = await fetch("/api/wifi/scan");
+            const res = await fetch(apiHost + "/api/wifi/scan");
             const data = await res.json();
             if (!res.ok || data.detail || data.error) {
                 throw new Error(data.detail || data.error || `Server error (${res.status})`);
@@ -737,7 +783,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Run detailed Connection Audit
     async function fetchAudit() {
         try {
-            const res = await fetch("/api/security/audit");
+            const res = await fetch(apiHost + "/api/security/audit");
             const data = await res.json();
             if (!res.ok || data.detail || data.error) {
                 throw new Error(data.detail || data.error || `Server error (${res.status})`);
@@ -977,7 +1023,7 @@ document.addEventListener("DOMContentLoaded", () => {
         latencyStatusText.textContent = `Pinging host at ${dev.ip}...`;
         
         try {
-            const res = await fetch(`/api/network/ping?ip=${dev.ip}`);
+            const res = await fetch(apiHost + `/api/network/ping?ip=${dev.ip}`);
             const data = await res.json();
             
             if (data.status === "online") {
@@ -1025,11 +1071,13 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // Initial triggers
-    Promise.all([fetchWhitelist(), fetchBlacklist()]).then(() => {
-        fetchWifiConnection();
-        fetchWifiScan();
-        fetchDevices();
-        fetchAudit();
-        connectWS();
+    detectLocalServer().then(() => {
+        Promise.all([fetchWhitelist(), fetchBlacklist()]).then(() => {
+            fetchWifiConnection();
+            fetchWifiScan();
+            fetchDevices();
+            fetchAudit();
+            connectWS();
+        });
     });
 });

@@ -1097,3 +1097,55 @@ input:checked + .slider:before {
     background: rgba(239, 68, 68, 0.12);
 }
 
+/* Local Scanner Status Banner */
+.banner-warning {
+    background: rgba(245, 158, 11, 0.05);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    border-radius: 12px;
+    padding: 0.85rem 1.25rem;
+    margin-bottom: 1.75rem;
+    box-shadow: 0 4px 20px 0 rgba(245, 158, 11, 0.08);
+    backdrop-filter: blur(12px);
+    transition: all 0.3s ease;
+    animation: fadeIn 0.4s ease forwards;
+}
+
+.banner-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.banner-icon {
+    color: var(--color-yellow);
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 5px rgba(245, 158, 11, 0.3));
+    animation: pulse 2s infinite;
+}
+
+.banner-text {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    flex-grow: 1;
+}
+
+.banner-btn {
+    background: var(--color-yellow) !important;
+    color: #000 !important;
+    box-shadow: 0 0 15px rgba(245, 158, 11, 0.2) !important;
+}
+
+.banner-btn:hover {
+    background: #fbbf24 !important;
+    transform: translateY(-1px);
+}
+
+.hidden {
+    display: none !important;
+}
+
