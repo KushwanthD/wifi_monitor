@@ -37,13 +37,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "Write-Host 'Scanning and uploading network reports every 5 seconds. Press Ctrl+C to stop.' -ForegroundColor DarkYellow;" ^
     "Write-Host '=======================================================================' -ForegroundColor DarkYellow;" ^
     "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Wifi { [DllImport(\"wlanapi.dll\")] public static extern uint WlanOpenHandle(uint dwClientVersion, IntPtr pReserved, out uint pdwNegotiatedVersion, out IntPtr phClientHandle); [DllImport(\"wlanapi.dll\")] public static extern uint WlanCloseHandle(IntPtr hClientHandle, IntPtr pReserved); [DllImport(\"wlanapi.dll\")] public static extern uint WlanScan(IntPtr hClientHandle, ref Guid pInterfaceGuid, IntPtr pDot11Ssid, IntPtr pIeData, IntPtr pReserved); }' -ErrorAction SilentlyContinue;" ^
+    "$interface_name = 'Wi-Fi';" ^
     "while ($true) {" ^
     "    try {" ^
     "        try {" ^
     "            $neg = 0; $h = [IntPtr]::Zero;" ^
     "            $res = [Wifi]::WlanOpenHandle(2, [IntPtr]::Zero, [ref]$neg, [ref]$h);" ^
     "            if ($res -eq 0) {" ^
-    "                $guid_str = (Get-NetAdapter -Name 'Wi-Fi' -ErrorAction SilentlyContinue).InterfaceGuid;" ^
+    "                $guid_str = (Get-NetAdapter -Name $interface_name -ErrorAction SilentlyContinue).InterfaceGuid;" ^
     "                if ($guid_str) {" ^
     "                    $guid = [Guid]::Parse($guid_str);" ^
     "                    [void][Wifi]::WlanScan($h, [ref]$guid, [IntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero);" ^
@@ -55,6 +56,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "        $ssid = ''; $bssid = ''; $signal = 0; $auth = 'Open'; $cipher = 'None';" ^
     "        $desc = ''; $mac = ''; $radio = ''; $band = ''; $channel = ''; $receive = '0'; $transmit = '0';" ^
     "        foreach ($line in $netsh) {" ^
+    "            if ($line -match '^\s*Name\s*:\s*(.*)$') { $interface_name = $Matches[1].Trim() }" ^
     "            if ($line -match '^\s*SSID\s*:\s*(.*)$') { $ssid = $Matches[1].Trim() }" ^
     "            if ($line -match '^\s*AP BSSID\s*:\s*(.*)$') { $bssid = $Matches[1].Trim().ToUpper() }" ^
     "            if ($line -match 'Signal\s*:\s*(\d+)') { $signal = [int]$Matches[1] }" ^
@@ -70,7 +72,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "        }" ^
     "        if ([string]::IsNullOrEmpty($ssid)) { $ssid = 'Not Connected'; $status = 'disconnected' } else { $status = 'connected' }" ^
     "        $host_ip = '';" ^
-    "        $ip_config = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias 'Wi-Fi' -ErrorAction SilentlyContinue;" ^
+    "        $ip_config = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias $interface_name -ErrorAction SilentlyContinue;" ^
     "        if ($ip_config) { $host_ip = $ip_config.IPAddress } else {" ^
     "            $active_ips = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' };" ^
     "            if ($active_ips) { $host_ip = $active_ips[0].IPAddress } else { $host_ip = '127.0.0.1' }" ^
@@ -96,8 +98,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "                }" ^
     "            }" ^
     "        }" ^
-    "        $networks = @();" ^
-    "        $netsh_scan = netsh wlan show networks mode=bssid;" ^
+    "        $networks = @(); Start-Sleep -Seconds 2; $netsh_scan = netsh wlan show networks mode=bssid;" ^
     "        $current_ssid = ''; $current_auth = 'Open'; $current_cipher = 'None'; $current_bssid = ''; $current_sig = 0; $current_chan = ''; $current_rad = '';" ^
     "        foreach ($line in $netsh_scan) {" ^
     "            if ($line -match '^\s*SSID\s+\d+\s*:\s*(.*)$') {" ^
@@ -136,5 +137,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "    } catch {" ^
     "        Write-Host ('[' + (Get-Date -Format 'HH:mm:ss') + '] Scan upload failed: ' + $_.Exception.Message) -ForegroundColor Red;" ^
     "    }" ^
-    "    Start-Sleep -Seconds 5;" ^
+    "    Start-Sleep -Seconds 3;" ^
     "}"
