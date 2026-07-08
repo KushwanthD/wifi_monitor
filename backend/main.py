@@ -296,6 +296,155 @@ async def background_network_monitor():
             
         await asyncio.sleep(20) # Scan every 20 seconds
 
+class WiFiDetails(BaseModel):
+    status: str
+    interface_name: str
+    description: str
+    mac_address: str
+    ssid: str
+    bssid: str
+    band: str
+    channel: str
+    radio_type: str
+    authentication: str
+    cipher: str
+    receive_rate: str
+    transmit_rate: str
+    signal: int
+
+class DeviceDetails(BaseModel):
+    ip: str
+    mac: str
+    vendor: str
+    is_host: bool
+
+class AgentReport(BaseModel):
+    agent_id: str
+    wifi: WiFiDetails
+    devices: List[DeviceDetails]
+
+# Dictionary to store latest reports in-memory
+agent_reports = {}
+
+@app.post("/api/agent/report")
+def receive_agent_report(payload: AgentReport):
+    wifi = payload.wifi.dict()
+    auth_upper = wifi["authentication"].upper()
+    
+    password_protected = True
+    security_level = "Unknown"
+    encryption_strength = "Unknown"
+    security_details = "Password Protected"
+
+    if "OPEN" in auth_upper or "NONE" in auth_upper or auth_upper == "":
+        password_protected = False
+        security_level = "Insecure / Public"
+        encryption_strength = "None (Vulnerable)"
+        security_details = "Open (Unencrypted)"
+    elif "WEP" in auth_upper:
+        security_level = "Weak / Legacy"
+        encryption_strength = "WEP (Vulnerable to exploits)"
+        security_details = "Password Protected (WEP)"
+    elif "WPA3" in auth_upper:
+        security_level = "Strong / Modern"
+        encryption_strength = "High (AES-GCMP/CCMP)"
+        security_details = "Password Protected (WPA3)"
+    elif "WPA2" in auth_upper:
+        security_level = "Standard / Secure"
+        encryption_strength = "Medium-High (AES-CCMP)"
+        security_details = "Password Protected (WPA2)"
+    elif "WPA" in auth_upper:
+        security_level = "Legacy / Deprecated"
+        encryption_strength = "Medium-Low (TKIP)"
+        security_details = "Password Protected (WPA)"
+        
+    wifi["password_protected"] = password_protected
+    wifi["security_level"] = security_level
+    wifi["encryption_strength"] = encryption_strength
+    wifi["security_details"] = security_details
+    
+    # Calculate simple security score
+    score = 100
+    if not password_protected:
+        score -= 40
+    elif "WEP" in auth_upper or "WPA1" in auth_upper:
+        score -= 25
+    elif "WPA2" in auth_upper:
+        score -= 5
+        
+    # Check if there are any other devices in the report (non-whitelisted nodes)
+    whitelist = load_whitelist()
+    blacklist = load_blacklist()
+    
+    processed_devices = []
+    intruders = 0
+    for d in payload.devices:
+        dev_mac = d.mac.upper()
+        is_whitelisted = dev_mac in whitelist
+        is_blacklisted = dev_mac in blacklist
+        
+        # OUI Vendor Lookup fallback on cloud if unknown
+        vendor = d.vendor
+        if vendor == "Network Node" or vendor == "Unknown Device" or not vendor:
+            try:
+                from services.network_scanner import NetworkScanner
+                vendor = NetworkScanner.get_vendor_from_oui(dev_mac)
+            except Exception:
+                pass
+            
+        processed_devices.append({
+            "ip": d.ip,
+            "mac": dev_mac,
+            "vendor": vendor,
+            "is_host": d.is_host,
+            "is_whitelisted": is_whitelisted,
+            "is_blacklisted": is_blacklisted
+        })
+        
+        if is_blacklisted:
+            score -= 30
+            intruders += 1
+            
+    # Cap score
+    score = max(0, min(100, score))
+    
+    # Compile alerts
+    alerts = []
+    if intruders > 0:
+        alerts.append({
+            "category": "Blacklisted Node Active",
+            "severity": "critical",
+            "message": f"DETECTED {intruders} BLACKLISTED INTRUDER(S) ACTIVE ON YOUR WIFI! Eject these nodes immediately to protect subnet integrity."
+        })
+    if not password_protected:
+        alerts.append({
+            "category": "Unsecured WiFi",
+            "severity": "high",
+            "message": "Your Wi-Fi is open and does not require a password! Anyone can scan or sniff your traffic."
+        })
+    elif "WEP" in auth_upper:
+        alerts.append({
+            "category": "Insecure Security Protocol",
+            "severity": "high",
+            "message": "Your Wi-Fi is protected by WEP which can be cracked in minutes. Upgrade to WPA2 or WPA3."
+        })
+        
+    # Store report
+    agent_reports[payload.agent_id.upper()] = {
+        "wifi": wifi,
+        "devices": processed_devices,
+        "security_score": score,
+        "alerts": alerts
+    }
+    return {"status": "success"}
+
+@app.get("/api/agent/report/{agent_id}")
+def get_agent_report(agent_id: str):
+    aid = agent_id.upper()
+    if aid not in agent_reports:
+        raise HTTPException(status_code=404, detail="No scan report found for Agent ID: " + agent_id)
+    return agent_reports[aid]
+
 @app.on_event("startup")
 def startup_event():
     # Start background task

@@ -1149,3 +1149,85 @@ input:checked + .slider:before {
     display: none !important;
 }
 
+/* Agent ID Connection Panel */
+.agent-connect-panel {
+    background: rgba(255, 255, 255, 0.015);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 0.85rem;
+    margin: 0.5rem 1rem 1.5rem 1rem;
+    backdrop-filter: blur(10px);
+}
+
+.agent-lbl {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    letter-spacing: 1.25px;
+    display: block;
+    margin-bottom: 0.6rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.agent-input-group {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.agent-input-group input {
+    flex-grow: 1;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    padding: 0.45rem 0.75rem;
+    font-family: var(--font-sans);
+    transition: all 0.25s ease;
+}
+
+.agent-input-group input:focus {
+    border-color: rgba(6, 182, 212, 0.4);
+    outline: none;
+    box-shadow: 0 0 10px rgba(6, 182, 212, 0.1);
+}
+
+.agent-input-group button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 8px;
+    padding: 0.45rem 0.65rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.agent-active-badge {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.35rem 0.6rem;
+    background: rgba(16, 185, 129, 0.05);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    border-radius: 8px;
+    animation: fadeIn 0.3s ease;
+}
+
+.agent-active-badge .status-indicator-dot {
+    margin-right: 0.15rem;
+}
+
+#agent-active-text {
+    flex-grow: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#agent-disconnect-btn:hover {
+    color: var(--color-red) !important;
+    transform: scale(1.1);
+}
+

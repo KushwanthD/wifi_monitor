@@ -105,6 +105,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const alertsContainer = document.getElementById("alerts-container");
     const alertCountBadge = document.getElementById("alert-count-badge");
     
+    // Agent ID Connection Elements
+    const agentIdInput = document.getElementById("agent-id-input");
+    const agentConnectBtn = document.getElementById("agent-connect-btn");
+    const agentDisconnectBtn = document.getElementById("agent-disconnect-btn");
+    const agentActiveBadge = document.getElementById("agent-active-badge");
+    const agentActiveText = document.getElementById("agent-active-text");
+    const agentInputGroup = document.getElementById("agent-input-group");
+    let connectedAgentId = localStorage.getItem("wifi_monitor_agent_id") || "";
+    
     // Tab 2: WiFi Inspector Elements
     const wifiScanTbody = document.getElementById("wifi-scan-tbody");
     
@@ -780,6 +789,55 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // Render alerts UI block
+    function renderAlerts(alerts) {
+        let alertsHtml = "";
+        let alertCount = alerts.length;
+        
+        if (alertCount === 0) {
+            alertsHtml = `
+                <div class="empty-state">
+                    <i data-lucide="shield-check" class="text-success"></i>
+                    <p>No active threats or vulnerabilities found on this network.</p>
+                </div>
+            `;
+        } else {
+            alerts.forEach(alert => {
+                let severityClass = `severity-${alert.severity}`;
+                let iconName = "info";
+                
+                if (alert.severity === "critical" || alert.severity === "high") {
+                    iconName = "shield-alert";
+                } else if (alert.severity === "medium" || alert.severity === "low") {
+                    iconName = "alert-triangle";
+                }
+
+                alertsHtml += `
+                    <div class="alert-item ${severityClass}">
+                        <div class="alert-icon ${alert.severity === 'critical' || alert.severity === 'high' ? 'danger' : alert.severity === 'info' ? 'info' : 'warning'}">
+                            <i data-lucide="${iconName}"></i>
+                        </div>
+                        <div class="alert-body">
+                            <h4>${alert.category}</h4>
+                            <p>${alert.message}</p>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        alertsContainer.innerHTML = alertsHtml;
+        alertCountBadge.textContent = `${alertCount} Alert(s)`;
+        alertCountBadge.className = alertCount > 0 ? "badge text-glow-red" : "badge badge-outline";
+        if (alertCount > 0) {
+            alertCountBadge.style.borderColor = "var(--color-red)";
+        } else {
+            alertCountBadge.style.borderColor = "";
+        }
+        
+        safeCreateIcons();
+    }
+
     // Run detailed Connection Audit
     async function fetchAudit() {
         try {
@@ -798,55 +856,51 @@ document.addEventListener("DOMContentLoaded", () => {
             pubIp.textContent = pubInfo.public_ip || "Unavailable (Sandboxed)";
             pubIsp.textContent = pubInfo.org || "Protected Gateway Network";
             
-            // Build alerts HTML
-            let alertsHtml = "";
-            const alerts = data.alerts || [];
-            let alertCount = alerts.length;
-            
-            if (alertCount === 0) {
-                alertsHtml = `
-                    <div class="empty-state">
-                        <i data-lucide="shield-check" class="text-success"></i>
-                        <p>No active threats or vulnerabilities found on this network.</p>
-                    </div>
-                `;
-            } else {
-                alerts.forEach(alert => {
-                    let severityClass = `severity-${alert.severity}`;
-                    let iconName = "info";
-                    
-                    if (alert.severity === "critical" || alert.severity === "high") {
-                        iconName = "shield-alert";
-                    } else if (alert.severity === "medium" || alert.severity === "low") {
-                        iconName = "alert-triangle";
-                    }
-
-                    alertsHtml += `
-                        <div class="alert-item ${severityClass}">
-                            <div class="alert-icon ${alert.severity === 'critical' || alert.severity === 'high' ? 'danger' : alert.severity === 'info' ? 'info' : 'warning'}">
-                                <i data-lucide="${iconName}"></i>
-                            </div>
-                            <div class="alert-body">
-                                <h4>${alert.category}</h4>
-                                <p>${alert.message}</p>
-                            </div>
-                        </div>
-                    `;
-                });
-            }
-            
-            alertsContainer.innerHTML = alertsHtml;
-            alertCountBadge.textContent = `${alertCount} Alert(s)`;
-            alertCountBadge.className = alertCount > 0 ? "badge text-glow-red" : "badge badge-outline";
-            if (alertCount > 0) {
-                alertCountBadge.style.borderColor = "var(--color-red)";
-            } else {
-                alertCountBadge.style.borderColor = "";
-            }
-            
-            safeCreateIcons();
+            // Render Alerts
+            renderAlerts(data.alerts || []);
         } catch (e) {
             logToConsole("Audit fetch failed: " + e.message, "system");
+        }
+    }
+
+    // Fetch unified cloud agent report
+    async function fetchAgentReport() {
+        if (!connectedAgentId) return;
+        
+        try {
+            const res = await fetch(apiHost + `/api/agent/report/${connectedAgentId}`);
+            if (!res.ok) {
+                if (res.status === 404) {
+                    logToConsole(`No scan data received from Agent: ${connectedAgentId}. Keep the script running on that PC!`, "system");
+                    updateWifiUI({ status: "disconnected" });
+                    return;
+                }
+                throw new Error(`Server error (${res.status})`);
+            }
+            
+            const data = await res.json();
+            
+            // 1. Connection properties
+            state.wifiConnection = data.wifi || {};
+            updateWifiUI(state.wifiConnection);
+            
+            if (state.wifiConnection.status === "connected") {
+                profileGateway.textContent = state.wifiConnection.gateway_ip || "--";
+            }
+            
+            // 2. Devices table
+            state.devices = data.devices || [];
+            renderDevicesTable();
+            
+            // 3. Security Score Ring
+            updateSecurityScore(data.security_score || 0);
+            
+            // 4. Alerts list
+            renderAlerts(data.alerts || []);
+            
+            logToConsole(`Telemetry synchronized for Agent: ${connectedAgentId}.`, "system");
+        } catch (e) {
+            logToConsole(`Agent telemetry fetch failed: ${e.message}`, "system");
         }
     }
 
@@ -879,6 +933,24 @@ document.addEventListener("DOMContentLoaded", () => {
         const activeRefreshIcon = document.getElementById("refresh-icon");
         if (activeRefreshIcon) activeRefreshIcon.classList.add("icon-spin");
         globalRefreshBtn.disabled = true;
+        
+        if (connectedAgentId) {
+            logToConsole(`Requesting remote scan refresh for agent ${connectedAgentId}...`, "system");
+            try {
+                await fetchAgentReport();
+            } catch (err) {
+                logToConsole("Agent sync failed: " + err.message, "event-alert");
+            } finally {
+                setTimeout(() => {
+                    const activeRefreshIcon = document.getElementById("refresh-icon");
+                    if (activeRefreshIcon) activeRefreshIcon.classList.remove("icon-spin");
+                    globalRefreshBtn.disabled = false;
+                    logToConsole("Agent scan refresh completed.", "system");
+                }, 800);
+            }
+            return;
+        }
+
         logToConsole("Executing full environment security audit...", "system");
 
         try {
@@ -1070,14 +1142,70 @@ document.addEventListener("DOMContentLoaded", () => {
         setDeviceStatus(state.selectedThreatMac, isBlocked ? "unknown" : "blocked");
     });
 
-    // Initial triggers
-    detectLocalServer().then(() => {
-        Promise.all([fetchWhitelist(), fetchBlacklist()]).then(() => {
-            fetchWifiConnection();
-            fetchWifiScan();
-            fetchDevices();
-            fetchAudit();
-            connectWS();
+    // Bind agent click listeners
+    if (agentConnectBtn) {
+        agentConnectBtn.addEventListener("click", () => {
+            const idVal = agentIdInput.value.trim().toUpperCase();
+            if (!idVal) {
+                alert("Please enter your computer name / Agent ID");
+                return;
+            }
+            connectedAgentId = idVal;
+            localStorage.setItem("wifi_monitor_agent_id", connectedAgentId);
+            logToConsole(`Connecting to agent stream: ${connectedAgentId}...`, "system");
+            updateAgentUI();
+            
+            // Fetch remote data immediately
+            fetchAgentReport();
         });
-    });
+    }
+
+    if (agentDisconnectBtn) {
+        agentDisconnectBtn.addEventListener("click", () => {
+            logToConsole(`Disconnecting from agent: ${connectedAgentId}`, "system");
+            connectedAgentId = "";
+            localStorage.removeItem("wifi_monitor_agent_id");
+            updateAgentUI();
+            
+            // Reload local workspace
+            window.location.reload();
+        });
+    }
+
+    function updateAgentUI() {
+        if (!agentIdInput || !agentActiveBadge || !agentInputGroup) return;
+        
+        if (connectedAgentId) {
+            agentInputGroup.classList.add("hidden");
+            agentActiveBadge.classList.remove("hidden");
+            agentActiveText.textContent = `Active: ${connectedAgentId}`;
+            if (localStatusBanner) localStatusBanner.classList.add("hidden");
+        } else {
+            agentInputGroup.classList.remove("hidden");
+            agentActiveBadge.classList.add("hidden");
+            if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1" && !apiHost) {
+                if (localStatusBanner) localStatusBanner.classList.remove("hidden");
+            }
+        }
+    }
+
+    // Initial triggers
+    updateAgentUI();
+
+    if (connectedAgentId) {
+        // Fetch Agent report and set up 20s poll loop
+        fetchAgentReport();
+        setInterval(fetchAgentReport, 20000);
+    } else {
+        // Normal local dashboard sequence
+        detectLocalServer().then(() => {
+            Promise.all([fetchWhitelist(), fetchBlacklist()]).then(() => {
+                fetchWifiConnection();
+                fetchWifiScan();
+                fetchDevices();
+                fetchAudit();
+                connectWS();
+            });
+        });
+    }
 });

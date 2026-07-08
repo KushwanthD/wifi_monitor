@@ -1,92 +1,93 @@
 @echo off
-title WiFi Monitor Bootstrapper
+title WiFi Monitor
 echo =======================================================================
 echo                 WiFi Monitor - Local Security Agent
 echo =======================================================================
 echo.
 
-:: 1. Check if source code exists
-if not exist "backend\main.py" if not exist "main.py" (
-    echo [INFO] Project files not found. Bootstrapping from GitHub...
-    echo Downloading source code zip...
-    
-    powershell -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/KushwanthD/wifi_monitor/archive/refs/heads/main.zip' -OutFile 'wifi_monitor.zip' } catch { Write-Error $_; exit 1 }"
-    if errorlevel 1 (
-        echo.
-        echo [ERROR] Failed to download source code from GitHub.
-        echo If this is a private repository, please clone or copy the project manually to this PC.
-        echo.
-        pause
-        exit
-    )
-    
-    echo Extracting files...
-    powershell -Command "Expand-Archive -Path 'wifi_monitor.zip' -DestinationPath 'temp_src' -Force"
-    
-    echo Copying files to workspace...
-    xcopy /E /Y /Q temp_src\wifi_monitor-main\* . >nul
-    
-    echo Cleaning up temporary setup files...
-    del wifi_monitor.zip
-    rmdir /S /Q temp_src
-    echo [SUCCESS] Source code extracted.
-    echo.
-)
-
-:: Adjust working directory if we are at root or inside backend
-if exist "backend\main.py" (
-    set "BACKEND_DIR=%CD%\backend"
-) else if exist "main.py" (
-    set "BACKEND_DIR=%CD%"
-) else (
-    echo [ERROR] Could not find backend folder. Setup failed.
+:: Check if this is the Dev PC (main.py and venv folder exist)
+if exist "%~dp0backend\main.py" if exist "%~dp0backend\venv\Scripts\python.exe" (
+    echo [INFO] Dev Workspace detected. Starting local FastAPI server...
+    cd /d "%~dp0backend"
+    venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
     pause
     exit
 )
 
-cd /d "%BACKEND_DIR%"
-
-:: 2. Check virtual environment
-if not exist "venv\Scripts\python.exe" (
-    echo [INFO] Python virtual environment (venv) not found. Checking system Python...
-    where python >nul 2>nul
-    if errorlevel 1 (
-        echo =======================================================================
-        echo [ERROR] Python is not installed on this PC.
-        echo.
-        echo Please download and install Python 3 from: https://www.python.org/downloads/
-        echo Make sure to check the box: "Add Python to PATH" during installation.
-        echo =======================================================================
-        echo.
-        pause
-        exit
-    )
-    
-    echo [INFO] Creating Python virtual environment...
-    python -m venv venv
-    if errorlevel 1 (
-        echo [ERROR] Failed to create virtual environment.
-        pause
-        exit
-    )
-    
-    echo [INFO] Upgrading pip...
-    venv\Scripts\python.exe -m pip install --upgrade pip >nul
-    
-    echo [INFO] Installing required dependencies...
-    venv\Scripts\pip install -r requirements.txt
-    if errorlevel 1 (
-        echo [ERROR] Failed to install requirements.
-        pause
-        exit
-    )
-    echo [SUCCESS] Virtual environment and dependencies installed successfully.
-    echo.
+if exist "%~dp0..\backend\main.py" if exist "%~dp0..\backend\venv\Scripts\python.exe" (
+    echo [INFO] Dev Workspace detected. Starting local FastAPI server...
+    cd /d "%~dp0..\backend"
+    venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+    pause
+    exit
 )
 
-:: 3. Run the application
-echo Starting WiFi Monitor in Production mode...
-echo Exposing server to local home network on port 8000.
+:: Otherwise, we are on a Client PC! Run the zero-install PowerShell scanning loop.
+echo [INFO] Standalone client mode detected. Running native Wi-Fi scan agent...
 echo.
-venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
-pause
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$agent_id = $env:COMPUTERNAME;" ^
+    "Write-Host 'Your Computer Name (Agent ID) is:' -ForegroundColor Cyan;" ^
+    "Write-Host $agent_id -ForegroundColor Green -NoNewline;" ^
+    "Write-Host '  (Use this on the website to connect)' -ForegroundColor DarkGray;" ^
+    "Write-Host '';" ^
+    "Write-Host 'Scanning and uploading network reports every 20 seconds. Press Ctrl+C to stop.' -ForegroundColor DarkYellow;" ^
+    "Write-Host '=======================================================================';" ^
+    "while ($true) {" ^
+    "    try {" ^
+    "        $netsh = netsh wlan show interfaces;" ^
+    "        $ssid = ''; $bssid = ''; $signal = 0; $auth = 'Open'; $cipher = 'None';" ^
+    "        $desc = ''; $mac = ''; $radio = ''; $band = ''; $channel = ''; $receive = '0'; $transmit = '0';" ^
+    "        foreach ($line in $netsh) {" ^
+    "            if ($line -match '^\s*SSID\s*:\s*(.*)$') { $ssid = $Matches[1].Trim() }" ^
+    "            if ($line -match '^\s*AP BSSID\s*:\s*(.*)$') { $bssid = $Matches[1].Trim().ToUpper() }" ^
+    "            if ($line -match '^\s*Signal\s*:\s*(.*)%\s*$') { $signal = [int]$Matches[1].Trim() }" ^
+    "            if ($line -match '^\s*Authentication\s*:\s*(.*)$') { $auth = $Matches[1].Trim() }" ^
+    "            if ($line -match '^\s*Cipher\s*:\s*(.*)$') { $cipher = $Matches[1].Trim() }" ^
+    "            if ($line -match '^\s*Description\s*:\s*(.*)$') { $desc = $Matches[1].Trim() }" ^
+    "            if ($line -match '^\s*Physical address\s*:\s*(.*)$') { $mac = $Matches[1].Trim().Replace('-', ':').ToUpper() }" ^
+    "            if ($line -match '^\s*Radio type\s*:\s*(.*)$') { $radio = $Matches[1].Trim() }" ^
+    "            if ($line -match '^\s*Band\s*:\s*(.*)$') { $band = $Matches[1].Trim() }" ^
+    "            if ($line -match '^\s*Channel\s*:\s*(.*)$') { $channel = $Matches[1].Trim() }" ^
+    "            if ($line -match '^\s*Receive rate \(Mbps\)\s*:\s*(.*)$') { $receive = $Matches[1].Trim() }" ^
+    "            if ($line -match '^\s*Transmit rate \(Mbps\)\s*:\s*(.*)$') { $transmit = $Matches[1].Trim() }" ^
+    "        }" ^
+    "        if ([string]::IsNullOrEmpty($ssid)) { $ssid = 'Not Connected'; $status = 'disconnected' } else { $status = 'connected' }" ^
+    "        $host_ip = '';" ^
+    "        $ip_config = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias 'Wi-Fi' -ErrorAction SilentlyContinue;" ^
+    "        if ($ip_config) { $host_ip = $ip_config.IPAddress } else {" ^
+    "            $active_ips = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' };" ^
+    "            if ($active_ips) { $host_ip = $active_ips[0].IPAddress } else { $host_ip = '127.0.0.1' }" ^
+    "        }" ^
+    "        $devices = @();" ^
+    "        $devices += @{ 'ip' = $host_ip; 'mac' = $mac; 'vendor' = 'This Workstation'; 'is_host' = $true };" ^
+    "        $arp = arp -a;" ^
+    "        foreach ($line in $arp) {" ^
+    "            if ($line -match '^\s*([0-9\.]+)\s+([0-9a-fA-F\-]{17})\s+(dynamic|static)') {" ^
+    "                $ip = $Matches[1]; $dev_mac = $Matches[2].Replace('-', ':').ToUpper();" ^
+    "                if ($dev_mac -ne 'FF:FF:FF:FF:FF:FF' -and $dev_mac -ne $mac) {" ^
+    "                    $devices += @{ 'ip' = $ip; 'mac' = $dev_mac; 'vendor' = 'Network Node'; 'is_host' = $false }" ^
+    "                }" ^
+    "            }" ^
+    "        }" ^
+    "        $report = @{" ^
+    "            'agent_id' = $agent_id;" ^
+    "            'wifi' = @{" ^
+    "                'status' = $status; 'interface_name' = 'Wi-Fi'; 'description' = $desc; 'mac_address' = $mac;" ^
+    "                'ssid' = $ssid; 'bssid' = $bssid; 'band' = $band; 'channel' = $channel;" ^
+    "                'radio_type' = $radio; 'authentication' = $auth; 'cipher' = $cipher;" ^
+    "                'receive_rate' = $receive; 'transmit_rate' = $transmit; 'signal' = $signal" ^
+    "            };" ^
+    "            'devices' = $devices" ^
+    "        };" ^
+    "        $json = $report | ConvertTo-Json -Depth 5;" ^
+    "        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;" ^
+    "        $url = 'https://wifi-monitor-x7jk.onrender.com/api/agent/report';" ^
+    "        $res = Invoke-RestMethod -Uri $url -Method Post -Body $json -ContentType 'application/json';" ^
+    "        Write-Host ('[' + (Get-Date -Format 'HH:mm:ss') + '] Scan report uploaded successfully to Render. SSID: ' + $ssid) -ForegroundColor Green;" ^
+    "    } catch {" ^
+    "        Write-Host ('[' + (Get-Date -Format 'HH:mm:ss') + '] Scan upload failed: ' + $_.Exception.Message) -ForegroundColor Red;" ^
+    "    }" ^
+    "    Start-Sleep -Seconds 20;" ^
+    "}"

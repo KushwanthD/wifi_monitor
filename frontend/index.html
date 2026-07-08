@@ -13,7 +13,7 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Style CSS -->
-    <link rel="stylesheet" href="/static/style.css?v=6">
+    <link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 <body>
     <div class="app-container">
@@ -26,6 +26,24 @@
                 <div class="logo-text">
                     <h2>WIFI<span>MONITOR</span></h2>
                     <span class="sub-logo">Security Monitor</span>
+                </div>
+            </div>
+            
+            <!-- Agent ID Connection Panel -->
+            <div class="agent-connect-panel">
+                <span class="agent-lbl">CLOUD REMOTE AGENT</span>
+                <div class="agent-input-group" id="agent-input-group">
+                    <input type="text" id="agent-id-input" placeholder="Computer Name (ID)" title="Enter Computer Name (e.g. LAPTOP-123)">
+                    <button id="agent-connect-btn" class="btn-primary" title="Connect to Agent Feed">
+                        <i data-lucide="chevron-right"></i>
+                    </button>
+                </div>
+                <div id="agent-active-badge" class="agent-active-badge hidden">
+                    <span class="status-indicator-dot online"></span>
+                    <span id="agent-active-text" class="text-glow-green" style="font-size: 0.75rem; font-weight: 600;">Connected: LAPTOP-X</span>
+                    <button id="agent-disconnect-btn" title="Disconnect Agent" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;padding:2px;display:inline-flex;align-items:center;">
+                        <i data-lucide="x" style="width:14px;height:14px;"></i>
+                    </button>
                 </div>
             </div>
             
@@ -468,6 +486,6 @@
     <!-- Toast Notifications Container -->
     <div class="toast-container" id="toast-area"></div>
     
-    <script src="/static/app.js?v=6"></script>
+    <script src="/static/app.js?v=7"></script>
 </body>
 </html>
