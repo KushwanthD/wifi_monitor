@@ -1,4 +1,4 @@
-# SentryWiFi Workspace Rules
+# WiFi Monitor Workspace Rules
 
 - **Workspace Path**: `E:\vulnerabilities\wifi-security-monitor`
 - **User Preference**: This workspace is configured for WiFi security monitoring.

@@ -1,4 +1,4 @@
-// SentryWiFi Application Controller - Vanilla Javascript Engine
+// WiFi Monitor Application Controller - Vanilla Javascript Engine
 
 document.addEventListener("DOMContentLoaded", () => {
     // State management

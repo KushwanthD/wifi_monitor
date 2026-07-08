@@ -1,6 +1,6 @@
 @echo off
-title SentryWiFi Server
-echo Starting SentryWiFi Security Monitor in Production mode...
+title WiFi Monitor Server
+echo Starting WiFi Monitor in Production mode...
 echo Exposing server to local home network on port 8000.
 echo.
 cd /d "E:\vulnerabilities\wifi-security-monitor\backend"
