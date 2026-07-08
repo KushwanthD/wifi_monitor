@@ -892,8 +892,25 @@ document.addEventListener("DOMContentLoaded", () => {
             state.devices = data.devices || [];
             renderDevicesTable();
             
-            // 3. WiFi inspector scans
-            state.scanResults = data.wifi_scan || [];
+            // 3. WiFi inspector scans (restructure flat model to nested model)
+            const rawScan = data.wifi_scan || [];
+            state.scanResults = rawScan.map(net => {
+                const chanNum = parseInt(net.channel) || 1;
+                const bandStr = chanNum <= 14 ? "2.4 GHz" : "5 GHz";
+                return {
+                    ssid: net.ssid,
+                    authentication: net.authentication,
+                    encryption: net.encryption,
+                    bssids: [
+                        {
+                            bssid: net.bssid,
+                            signal: net.signal,
+                            channel: net.channel,
+                            band: bandStr
+                        }
+                    ]
+                };
+            });
             renderScanTable();
             renderChannelChart();
             

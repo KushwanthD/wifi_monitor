@@ -78,7 +78,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "        $netsh_scan = netsh wlan show networks mode=bssid;" ^
     "        $current_ssid = ''; $current_auth = 'Open'; $current_cipher = 'None'; $current_bssid = ''; $current_sig = 0; $current_chan = ''; $current_rad = '';" ^
     "        foreach ($line in $netsh_scan) {" ^
-    "            if ($line -match '^SSID\s+\d+\s*:\s*(.*)$') {" ^
+    "            if ($line -match '^\s*SSID\s+\d+\s*:\s*(.*)$') {" ^
     "                if ($current_ssid) {" ^
     "                    $networks += @{ 'ssid' = $current_ssid; 'authentication' = $current_auth; 'encryption' = $current_cipher; 'signal' = $current_sig; 'channel' = $current_chan; 'bssid' = $current_bssid; 'radio_type' = $current_rad }" ^
     "                }" ^
