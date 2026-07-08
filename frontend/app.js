@@ -1195,6 +1195,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function connectAgent(agentId) {
         connectedAgentId = agentId.trim().toUpperCase();
         localStorage.setItem("wifi_monitor_agent_id", connectedAgentId);
+        localStorage.removeItem("wifi_monitor_auto_connect_disabled");
         logToConsole(`Connecting to agent stream: ${connectedAgentId}...`, "system");
         updateAgentUI();
         
@@ -1214,7 +1215,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await res.json();
             
             // Auto connect if exactly 1 agent is online
-            if (data.length === 1 && !connectedAgentId) {
+            const autoConnectDisabled = localStorage.getItem("wifi_monitor_auto_connect_disabled") === "true";
+            if (data.length === 1 && !connectedAgentId && !autoConnectDisabled) {
                 connectAgent(data[0]);
                 return;
             }
@@ -1263,6 +1265,7 @@ document.addEventListener("DOMContentLoaded", () => {
             logToConsole(`Disconnecting from agent: ${connectedAgentId}`, "system");
             connectedAgentId = "";
             localStorage.removeItem("wifi_monitor_agent_id");
+            localStorage.setItem("wifi_monitor_auto_connect_disabled", "true");
             updateAgentUI();
             
             // Reload local workspace
