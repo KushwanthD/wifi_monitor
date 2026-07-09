@@ -175,22 +175,31 @@ def update_blacklist(payload: BlacklistUpdate):
 
 @app.get("/api/network/ping")
 def ping_device(ip: str):
-    import subprocess, re
+    import subprocess, re, sys
     try:
         startupinfo = None
         if hasattr(subprocess, 'STARTUPINFO'):
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
+        if sys.platform.startswith("win"):
+            cmd = ["ping", "-n", "1", "-w", "1000", ip]
+        else:
+            cmd = ["ping", "-c", "1", "-W", "1", ip]
+            
         result = subprocess.run(
-            ["ping", "-n", "1", "-w", "1000", ip],
+            cmd,
             capture_output=True, text=True, encoding="utf-8",
             errors="ignore", startupinfo=startupinfo
         )
         if result.returncode == 0:
-            time_match = re.search(r"Average = (\d+)ms|time[=<](\d+)ms", result.stdout, re.IGNORECASE)
+            time_match = re.search(r"Average = (\d+)ms|time[=<](\d+)ms|time=(\d+\.?\d*)\s*ms", result.stdout, re.IGNORECASE)
             if time_match:
-                latency = time_match.group(1) or time_match.group(2)
-                return {"status": "online", "latency_ms": int(latency)}
+                latency = time_match.group(1) or time_match.group(2) or time_match.group(3)
+                try:
+                    return {"status": "online", "latency_ms": int(float(latency))}
+                except Exception:
+                    return {"status": "online", "latency_ms": 1}
             return {"status": "online", "latency_ms": 1}
         return {"status": "offline", "latency_ms": None}
     except Exception as e:
