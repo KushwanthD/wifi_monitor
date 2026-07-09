@@ -45,6 +45,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadWhitelistBlacklist();
     fetchOnlineAgents();
     fetchPublicIP();
+    fetchAssets();
+    setupReportExports();
 
     // Auto-restore previous agent session
     if (activeAgentId) {
@@ -63,6 +65,8 @@ const TAB_META = {
     threats:   { title: 'Threat Center',          subtitle: 'Active security findings with contextual evidence & remediation' },
     assets:    { title: 'Wi-Fi Airspace',         subtitle: 'Detected networks, channel analysis & signal mapping' },
     devices:   { title: 'Subnet Devices',         subtitle: 'Network inventory, access controls & device inspector' },
+    inventory:  { title: 'Asset Inventory',        subtitle: 'Managed device and access point expected state definitions' },
+    compliance: { title: 'Compliance Center',       subtitle: 'CIS Benchmark checklist and wireless hardening criteria' },
     timeline:  { title: 'Security Timeline',      subtitle: 'Historical security events across all scans' },
     logs:      { title: 'Console Log',            subtitle: 'Live event stream & diagnostic output' },
 };
@@ -80,6 +84,8 @@ function switchTab(tab) {
     if (panel) panel.classList.add('active');
     $('page-title').textContent    = TAB_META[tab]?.title    || tab;
     $('page-subtitle').textContent = TAB_META[tab]?.subtitle || '';
+    if (tab === 'inventory') fetchAssets();
+    if (tab === 'compliance') fetchCompliance();
     lucide.createIcons();
 }
 
@@ -122,6 +128,7 @@ function handleWsMessage(msg) {
     if (msg.type === 'agent_update') {
         if (msg.agent_id === activeAgentId) {
             renderFullReport(msg);
+            fetchCompliance();
         }
     } else if (msg.type === 'alert') {
         showToast(msg.title || 'Alert', msg.message, 'high');
@@ -161,6 +168,7 @@ function activateAgent(agentId) {
     clearInterval(agentPollTimer);
     agentPollTimer = setInterval(pollAgent, 8000);
     loadAgentTimeline(activeAgentId);
+    fetchCompliance();
 }
 
 function disconnectAgent() {
@@ -171,6 +179,7 @@ function disconnectAgent() {
     $('agent-input-group').style.display = 'flex';
     consoleLog('Agent disconnected.', 'warn');
     resetDashboard();
+    fetchCompliance();
 }
 
 async function pollAgent() {
@@ -643,6 +652,8 @@ function populateInspector(d) {
     $('insp-approve-btn').disabled = d.is_host;
     $('insp-block-btn').disabled   = d.is_host;
     $('insp-ping-btn').disabled    = false;
+    const promoteBtn = $('insp-promote-btn');
+    if (promoteBtn) promoteBtn.disabled = false;
 
     // Router guide
     const routerLink = $('router-link');
@@ -685,6 +696,16 @@ function setupDeviceInspector() {
             btn.disabled = false;
             btn.innerHTML = '<i data-lucide="activity"></i> Ping';
             lucide.createIcons();
+        }
+    });
+
+    $('insp-promote-btn')?.addEventListener('click', () => {
+        if (selectedDevice) {
+            $('asset-mac').value = selectedDevice.mac;
+            $('asset-name').value = selectedDevice.hostname || selectedDevice.vendor || 'Discovered Subnet Node';
+            $('asset-type').value = 'device';
+            $('asset-vendor').value = selectedDevice.vendor || 'Unknown';
+            switchTab('inventory');
         }
     });
 
@@ -894,4 +915,134 @@ function fmtTime(iso, short = false) {
         return d.toLocaleString([], { month:'short', day:'numeric',
             hour:'2-digit', minute:'2-digit', second:'2-digit' });
     } catch(e) { return iso || ''; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ASSETS & COMPLIANCE & REPORTS
+// ═══════════════════════════════════════════════════════════════════════════════
+window.saveAsset = async function() {
+    const payload = {
+        mac: $('asset-mac').value.trim().toUpperCase(),
+        name: $('asset-name').value.trim(),
+        type: $('asset-type').value,
+        expected_vendor: $('asset-vendor').value.trim() || null,
+        expected_channel: $('asset-channel').value.trim() || null,
+        expected_encryption: $('asset-encryption').value.trim() || null,
+        location: $('asset-location').value.trim() || null,
+        owner: $('asset-owner').value.trim() || null,
+        notes: ''
+    };
+    try {
+        const res = await fetch(`${BASE_URL}/api/assets`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+            showToast('Asset Saved', `Asset ${payload.name} registered.`, 'success');
+            $('asset-form').reset();
+            fetchAssets();
+            if (activeAgentId) pollAgent();
+        }
+    } catch(e) {
+        showToast('Error', 'Failed to save asset.', 'high');
+    }
+};
+
+window.fetchAssets = async function() {
+    const tbody = $('assets-tbody');
+    if (!tbody) return;
+    try {
+        const res = await fetch(`${BASE_URL}/api/assets`);
+        const list = await res.json();
+        if (!list.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No assets registered yet.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = list.map(a => {
+            const exp = [];
+            if (a.expected_vendor) exp.push(`Vendor: ${a.expected_vendor}`);
+            if (a.expected_channel) exp.push(`Ch: ${a.expected_channel}`);
+            if (a.expected_encryption) exp.push(`Security: ${a.expected_encryption}`);
+            return `
+              <tr>
+                <td><strong>${escHtml(a.name)}</strong></td>
+                <td class="mono" style="font-size:0.75rem; color:var(--cyan);">${escHtml(a.mac)}</td>
+                <td><span style="font-size:0.72rem; text-transform:uppercase; color:var(--text-secondary);">${escHtml(a.type)}</span></td>
+                <td style="font-size:0.78rem; color:var(--text-secondary);">${escHtml(exp.join(' | ') || 'None')}</td>
+                <td><button class="tbl-btn block" onclick="window.deleteAsset('${escHtml(a.mac)}')">Remove</button></td>
+              </tr>`;
+        }).join('');
+    } catch(e) {}
+};
+
+window.deleteAsset = async function(mac) {
+    if (!confirm(`Are you sure you want to remove asset ${mac}?`)) return;
+    try {
+        const res = await fetch(`${BASE_URL}/api/assets/${mac}`, { method: 'DELETE' });
+        if (res.ok) {
+            showToast('Removed', 'Asset removed successfully.', 'success');
+            fetchAssets();
+            if (activeAgentId) pollAgent();
+        }
+    } catch(e) {}
+};
+
+window.fetchCompliance = async function() {
+    if (!activeAgentId) {
+        $('comp-score-val').textContent = '--%';
+        $('compliance-checklist-container').innerHTML = '<div class="empty-state"><i data-lucide="info" class="empty-icon"></i><p>Connect an agent to check compliance.</p></div>';
+        lucide.createIcons();
+        return;
+    }
+    try {
+        const res = await fetch(`${BASE_URL}/api/compliance/${activeAgentId}`);
+        const data = await res.json();
+        
+        const score = data.score || 0;
+        $('comp-score-val').textContent = score + '%';
+        
+        const ring = $('comp-ring-fill');
+        if (ring) {
+            const circumference = 314.16;
+            ring.style.strokeDashoffset = circumference - (score / 100) * circumference;
+            ring.style.stroke = score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : '#ef4444';
+        }
+        
+        const checks = [
+            { name: 'WPA3 Personal Protocol Preferred', status: data.wpa3_status, rec: 'Enable WPA3-Personal encryption key on your router.', details: 'WPA3 prevents modern brute-force offline handshake decryption.' },
+            { name: 'WPS Secure (Disabled/Inactive)', status: data.wps_status, rec: 'Disable WPS in wireless admin configurations.', details: 'Wi-Fi Protected Setup PIN brute-forcing allows complete network intrusion.' },
+            { name: 'Management Frame Protection (PMF) Active', status: data.pmf_status, rec: 'Set PMF to Required or Capable under security settings.', details: 'PMF prevents attackers from sending spoofed deauthentication packets.' },
+            { name: 'Non-Default SSID Configuration', status: data.default_ssid_status, rec: 'Rename your SSID to a custom pattern that hides manufacturer.', details: 'Default names (e.g. NETGEAR, TP-LINK) invite target profile lookups.' },
+            { name: 'Secure Encrypted Workspace Connection', status: data.open_network_status, rec: 'Ensure local network has WPA2/WPA3 passwords.', details: 'Connecting to Open/WEP hotspots exposes your traffic to local capture.' }
+        ];
+        
+        const container = $('compliance-checklist-container');
+        if (container) {
+            container.innerHTML = checks.map(c => `
+              <div class="threat-card ${c.status ? 'low' : 'critical'}">
+                <div class="threat-hdr">
+                  <div class="threat-hdr-left">
+                    <span class="threat-sev-dot"></span>
+                    <div class="threat-cat">${escHtml(c.name)}</div>
+                  </div>
+                  <span class="alert-sev-tag ${c.status ? 'low' : 'critical'}">${c.status ? 'COMPLIANT' : 'NON-COMPLIANT'}</span>
+                </div>
+                <div class="threat-msg">${escHtml(c.details)}</div>
+                ${!c.status ? `<div class="remediation" style="margin-top:8px;"><strong>Fix Action:</strong> ${escHtml(c.rec)}</div>` : ''}
+              </div>`).join('');
+            lucide.createIcons();
+        }
+    } catch(e) {}
+};
+
+function setupReportExports() {
+    $('export-html-btn')?.addEventListener('click', () => {
+        if (!activeAgentId) { showToast('No Agent', 'Connect an agent to export reports.', 'medium'); return; }
+        window.open(`${BASE_URL}/api/reports/export/${activeAgentId}?format=html`, '_blank');
+    });
+    $('export-csv-btn')?.addEventListener('click', () => {
+        if (!activeAgentId) { showToast('No Agent', 'Connect an agent to export data.', 'medium'); return; }
+        window.open(`${BASE_URL}/api/reports/export/${activeAgentId}?format=csv`, '_blank');
+    });
 }

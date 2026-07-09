@@ -1,15 +1,5 @@
 """
 analysis.py – Threat detection, security assessment and behavioral baselining.
-
-Detection modules (all passive — data comes from agent reports):
-  1. Security Assessment   – Open/WEP/WPS/weak-cipher flags + per-network risk score
-  2. Rogue AP Detection    – Unknown BSSID not in baseline
-  3. Evil Twin Detection   – Same SSID, different BSSID already known
-  4. Deauth Spike          – Connected AP counter divergence (via signal drop proxy)
-  5. MAC Spoofing          – Same IP, different MAC across consecutive scans
-  6. New Device / Client   – Subnet device not seen before
-  7. Open Network Nearby   – Open APs in airspace that could honeypot users
-  8. Behavioral Baseline   – Learn environment; flag new APs / missing APs
 """
 
 from __future__ import annotations
@@ -61,15 +51,22 @@ def run_analysis(agent_id: str, wifi: dict, devices: list, wifi_scan: list,
     sev, auth_penalty = _auth_risk(auth)
     penalty += auth_penalty
 
+    # Set remediation for auth protocol
+    auth_remediation = "Access your router administration portal and enable WPA3-Personal (SAE) mode. Ensure Protected Management Frames (PMF) are set to Required or Capable."
+    if sev == "critical":
+        auth_remediation = "Disconnect immediately. If this is your network, configure WPA2-Personal (AES) or WPA3-Personal encryption with a strong, unique password."
+    elif sev == "high":
+        auth_remediation = "WEP is highly insecure. Modify the wireless configuration in your access point settings. Change Cipher Type to WPA2-Personal (AES)."
+
     if sev in ("critical", "high", "medium", "low", "info"):
         msg = _conn_security_msg(auth, wifi.get("ssid", "unknown"))
-        alerts.append(_alert(sev, "WiFi Encryption", msg, {"auth": auth, "ssid": wifi.get("ssid")}))
+        alerts.append(_alert(sev, "WiFi Encryption", msg, auth_remediation, {"auth": auth, "ssid": wifi.get("ssid")}))
 
     # Weak cipher
     if "TKIP" in (cipher or "").upper():
         alerts.append(_alert("medium", "Weak Cipher (TKIP)",
-            f"Your connection to '{wifi.get('ssid')}' uses TKIP — a deprecated cipher vulnerable to replay attacks. "
-            f"Configure your router to use AES/CCMP.",
+            f"Your connection to '{wifi.get('ssid')}' uses TKIP — a deprecated cipher vulnerable to replay attacks. Configure your router to use AES/CCMP.",
+            "Modify the wireless configuration in your access point settings. Change Cipher Type from TKIP or Auto/TKIP+AES to AES-only (CCMP).",
             {"cipher": cipher}))
         penalty += 8
 
@@ -85,15 +82,15 @@ def run_analysis(agent_id: str, wifi: dict, devices: list, wifi_scan: list,
 
     if open_nearby:
         alerts.append(_alert("medium", "Open Networks in Airspace",
-            f"{len(open_nearby)} open (unencrypted) Wi-Fi network(s) detected nearby: "
-            f"{', '.join(open_nearby[:5])}. These may be honeypots or rogue APs.",
+            f"{len(open_nearby)} open (unencrypted) Wi-Fi network(s) detected nearby: {', '.join(open_nearby[:5])}. These may be honeypots or rogue APs.",
+            "Do not connect to open networks without a trusted corporate VPN. Ensure your devices have 'Auto-Connect to open networks' turned off.",
             {"networks": open_nearby}))
         penalty += 5
 
     if wep_nearby:
         alerts.append(_alert("low", "WEP Networks in Airspace",
-            f"{len(wep_nearby)} legacy WEP-protected network(s) nearby: "
-            f"{', '.join(wep_nearby[:3])}. WEP is trivially crackable and poses a neighbourhood risk.",
+            f"{len(wep_nearby)} legacy WEP-protected network(s) nearby: {', '.join(wep_nearby[:3])}. WEP is trivially crackable and poses a neighborhood risk.",
+            "Notify owners of WEP access points to upgrade their security settings to WPA2/WPA3 as WEP handshakes can be cracked in under a minute.",
             {"networks": wep_nearby}))
 
     # ── 3. Behavioral Baseline + Rogue AP / Evil Twin Detection ─────────────
@@ -122,10 +119,8 @@ def run_analysis(agent_id: str, wifi: dict, devices: list, wifi_scan: list,
         ]
         if twins:
             alerts.append(_alert("critical", "Evil Twin AP Detected",
-                f"⚠ Multiple BSSIDs detected for '{connected_ssid}'. "
-                f"Unknown MAC(s) {', '.join(twins[:3])} are broadcasting the same SSID as your connected network. "
-                f"This is a strong indicator of an Evil Twin attack. "
-                f"Recommended action: Disconnect immediately and verify your router's physical integrity.",
+                f"⚠ Multiple BSSIDs detected for '{connected_ssid}'. Unknown MAC(s) {', '.join(twins[:3])} are broadcasting the same SSID as your connected network. This is a strong indicator of an Evil Twin attack.",
+                "Do not enter credentials. Disconnect from the network immediately. Inspect the physical area for unauthorized Wi-Fi transmitters, check router logs for spoofed MAC signals, and enable 802.11w Protected Management Frames (PMF).",
                 {"ssid": connected_ssid, "known_bssid": connected_bssid, "rogue_bssids": twins}))
             penalty += 35
 
@@ -138,9 +133,8 @@ def run_analysis(agent_id: str, wifi: dict, devices: list, wifi_scan: list,
                 if (ap.get("bssid") or "").upper() in new_bssids:
                     new_ssids.append(ap.get("ssid", "Unknown"))
             alerts.append(_alert("high", "New / Rogue Access Points Detected",
-                f"{len(new_bssids)} previously unseen access point(s) appeared in your airspace: "
-                f"{', '.join(set(new_ssids[:5]))}. "
-                f"Verify these are legitimate networks before connecting.",
+                f"{len(new_bssids)} previously unseen access point(s) appeared in your airspace: {', '.join(set(new_ssids[:5]))}. Verify these are legitimate networks before connecting.",
+                "Perform a physical sweep to locate the rogue device. If it is an unauthorized employee hotspot, disable it. Check for unrecognized BSSIDs near your facility.",
                 {"new_bssids": list(new_bssids), "new_ssids": list(set(new_ssids))}))
             penalty += 15
 
@@ -165,24 +159,23 @@ def run_analysis(agent_id: str, wifi: dict, devices: list, wifi_scan: list,
 
     if blacklisted_count:
         alerts.append(_alert("critical", "Blacklisted Device Active",
-            f"CRITICAL: {blacklisted_count} blacklisted device(s) are currently active on your subnet! "
-            f"These are known hostile nodes. Eject them from your router immediately.",
+            f"CRITICAL: {blacklisted_count} blacklisted device(s) are currently active on your subnet! These are known hostile nodes. Eject them from your router immediately.",
+            "Locate the device IP/MAC in your router's client list and block it. Consider changing the Wi-Fi password if the intruder obtained your pre-shared key.",
             {"blacklisted_count": blacklisted_count}))
         penalty += 35 * blacklisted_count
 
     if unknown_count:
         alerts.append(_alert("high", "Unauthorized Device(s) Detected",
-            f"{unknown_count} unrecognized device(s) found on your subnet. "
-            f"Review the Subnet Devices tab and approve or block them.",
+            f"{unknown_count} unrecognized device(s) found on your subnet. Review the Subnet Devices tab and approve or block them.",
+            "Review the device IP and MAC address in your Subnet Devices panel. If this is an expected asset, add it to the Approved Whitelist. If it is a threat, block it at your router portal.",
             {"count": unknown_count}))
         penalty += min(10 * unknown_count, 25)
 
     if new_devices:
         for nd in new_devices[:3]:
             alerts.append(_alert("medium", "New Subnet Node",
-                f"A device not previously seen has joined your network: "
-                f"IP {nd.get('ip')} | MAC {nd.get('mac')} | Vendor {nd.get('vendor','Unknown')}. "
-                f"If this device is unknown to you, consider blocking it.",
+                f"A device not previously seen has joined your network: IP {nd.get('ip')} | MAC {nd.get('mac')} | Vendor {nd.get('vendor','Unknown')}. If this device is unknown to you, consider blocking it.",
+                "Verify if a colleague has recently connected a new workstation or phone. If unauthorized, move the node to the blacklist immediately.",
                 {"ip": nd.get("ip"), "mac": nd.get("mac"), "vendor": nd.get("vendor")}))
 
     # ── 5. MAC Spoofing Indicator ─────────────────────────────────────────────
@@ -195,21 +188,81 @@ def run_analysis(agent_id: str, wifi: dict, devices: list, wifi_scan: list,
             mac = (d.get("mac") or "").upper()
             if ip and mac and ip in prev_ip_mac and prev_ip_mac[ip] != mac:
                 alerts.append(_alert("high", "MAC Spoofing Indicator",
-                    f"Device at IP {ip} changed MAC from {prev_ip_mac[ip]} to {mac}. "
-                    f"This may indicate MAC spoofing or device replacement. "
-                    f"Verify the physical device at this IP address.",
+                    f"Device at IP {ip} changed MAC from {prev_ip_mac[ip]} to {mac}. This may indicate MAC spoofing or device replacement. Verify the physical device at this IP address.",
+                    "Verify if the physical device has been replaced. If not, this IP may be targeted by an ARP spoofing attack. Enable dynamic ARP inspection (DAI) on your managed switches.",
                     {"ip": ip, "old_mac": prev_ip_mac[ip], "new_mac": mac}))
                 penalty += 18
 
-    # ── 6. Update Baseline ───────────────────────────────────────────────────
+    # ── 6. Managed Asset Verification ──────────────────────────────────────────
+    assets_dict = {a["mac"].upper(): a for a in db.get_assets()}
+
+    # Check observed devices against expected managed asset vendor
+    for d in devices:
+        d_mac = d.get("mac", "").upper()
+        if d_mac in assets_dict:
+            asset = assets_dict[d_mac]
+            exp_vendor = asset.get("expected_vendor")
+            obs_vendor = d.get("vendor", "")
+            if exp_vendor and exp_vendor.upper() not in obs_vendor.upper() and obs_vendor not in ("Network Node", "Unknown Device"):
+                alerts.append(_alert("critical", "Asset Mismatch (Vendor)",
+                    f"Managed Asset '{asset.get('name')}' (MAC: {d_mac}) reported vendor '{obs_vendor}', but expected '{exp_vendor}'. This indicates potential MAC address spoofing.",
+                    "Audit the physical device immediately. Disconnect the node or disable its port, and update your security whitelist/blacklist configuration.",
+                    {"observed_vendor": obs_vendor, "expected_vendor": exp_vendor}))
+                penalty += 25
+
+    # Check observed APs against expected managed AP configurations
+    for ap in (wifi_scan or []):
+        ap_bssid = ap.get("bssid", "").upper()
+        if ap_bssid in assets_dict:
+            asset = assets_dict[ap_bssid]
+            exp_channel = asset.get("expected_channel")
+            obs_channel = ap.get("channel")
+            if exp_channel and obs_channel and str(exp_channel) != str(obs_channel):
+                alerts.append(_alert("high", "Asset Mismatch (Channel)",
+                    f"Managed AP '{asset.get('name')}' (BSSID: {ap_bssid}) is operating on Channel {obs_channel}, but expected Channel {exp_channel}.",
+                    "Verify if network administration changed the channel. If not, scan the area to check for a rogue access point spoofing this network name on a different frequency.",
+                    {"observed_channel": obs_channel, "expected_channel": exp_channel}))
+                penalty += 15
+
+            exp_enc = asset.get("expected_encryption")
+            obs_enc = ap.get("authentication")
+            if exp_enc and obs_enc and exp_enc.upper() not in obs_enc.upper():
+                alerts.append(_alert("critical", "Asset Mismatch (Encryption)",
+                    f"Managed AP '{asset.get('name')}' (BSSID: {ap_bssid}) is running encryption '{obs_enc}', but expected '{exp_enc}'. Security has been degraded!",
+                    "Access the AP management console immediately. Re-enable the expected security protocol (WPA2/WPA3) and investigate potential configuration tampering.",
+                    {"observed_encryption": obs_enc, "expected_encryption": exp_enc}))
+                penalty += 30
+
+    # ── 7. CIS Compliance Auditing ──────────────────────────────────────────
+    wpa3 = 1 if "WPA3" in auth.upper() else 0
+    wps = 1 if ("WPA3" in auth.upper() or "WPA2" in auth.upper()) and not ("WEP" in auth.upper() or "OPEN" in auth.upper()) else 0
+    pmf = 1 if "WPA3" in auth.upper() else 0
+
+    default_ssids = ["NETGEAR", "LINKSYS", "TP-LINK", "ASUS", "DLINK", "WIFI", "HOME", "DEFAULT"]
+    default_ssid_found = any(d_ssid in connected_ssid.upper() for d_ssid in default_ssids)
+    default_ssid = 0 if default_ssid_found else 1
+
+    open_network = 0 if ("OPEN" in auth.upper() or "NONE" in auth.upper() or auth == "") else 1
+
+    compliance_score = int((wpa3 + wps + pmf + default_ssid + open_network) * 20)
+    db.insert_compliance(aid, wpa3, wps, pmf, default_ssid, open_network, compliance_score)
+
+    if default_ssid_found:
+        alerts.append(_alert("medium", "Compliance: Default SSID Used",
+            f"Connected to '{connected_ssid}' which contains a default manufacturer pattern. Default names help attackers perform targeted credential harvesting.",
+            "Rename your SSID to a custom, non-identifying name (e.g. avoid company names or router model names).",
+            {"ssid": connected_ssid}))
+        penalty += 8
+
+    # ── 8. Update Baseline ───────────────────────────────────────────────────
     merged_bssids = known_bssids | current_bssids
     merged_macs   = known_macs   | current_macs
     db.update_baseline(aid, merged_bssids, merged_macs)
 
-    # ── 7. Persist alerts to DB ──────────────────────────────────────────────
+    # ── 9. Persist alerts to DB ──────────────────────────────────────────────
     for a in alerts:
         db.insert_alert(aid, a["severity"], a["category"], a["message"],
-                        a.get("evidence"))
+                        a.get("remediation"), a.get("evidence"))
 
     score = max(0, min(100, 100 - penalty))
     return score, alerts
@@ -217,8 +270,8 @@ def run_analysis(agent_id: str, wifi: dict, devices: list, wifi_scan: list,
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _alert(severity: str, category: str, message: str, evidence: dict = None) -> dict:
-    return {"severity": severity, "category": category, "message": message, "evidence": evidence or {}}
+def _alert(severity: str, category: str, message: str, remediation: str = None, evidence: dict = None) -> dict:
+    return {"severity": severity, "category": category, "message": message, "remediation": remediation or "No remediation required.", "evidence": evidence or {}}
 
 
 def _conn_security_msg(auth: str, ssid: str) -> str:

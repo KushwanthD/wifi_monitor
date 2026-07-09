@@ -84,6 +84,17 @@ class WhitelistUpdate(BaseModel):
 class BlacklistUpdate(BaseModel):
     macs: List[str]
 
+class AssetModel(BaseModel):
+    mac: str
+    type: str
+    name: str
+    expected_vendor: Optional[str] = None
+    expected_channel: Optional[str] = None
+    expected_encryption: Optional[str] = None
+    location: Optional[str] = None
+    owner: Optional[str] = None
+    notes: Optional[str] = None
+
 # ── Existing local-scan endpoints (unchanged) ─────────────────────────────────
 @app.get("/api/wifi/connection")
 def get_wifi_connection():
@@ -434,6 +445,255 @@ def dismiss_alert(alert_id: int):
 @app.get("/api/score-history/{agent_id}")
 def get_score_history(agent_id: str):
     return db.get_score_history(agent_id.upper(), 30)
+
+# ── Asset Management Endpoints ──────────────────────────────────────────────
+@app.get("/api/assets")
+def get_assets():
+    return db.get_assets()
+
+@app.post("/api/assets")
+def update_asset(payload: AssetModel):
+    db.add_asset(
+        mac=payload.mac,
+        asset_type=payload.type,
+        name=payload.name,
+        expected_vendor=payload.expected_vendor,
+        expected_channel=payload.expected_channel,
+        expected_encryption=payload.expected_encryption,
+        location=payload.location,
+        owner=payload.owner,
+        notes=payload.notes
+    )
+    return {"status": "success", "assets": db.get_assets()}
+
+@app.delete("/api/assets/{mac}")
+def delete_asset(mac: str):
+    db.delete_asset(mac)
+    return {"status": "success", "assets": db.get_assets()}
+
+# ── Compliance Auditing Endpoints ────────────────────────────────────────────
+@app.get("/api/compliance/{agent_id}")
+def get_compliance(agent_id: str):
+    latest = db.get_latest_compliance(agent_id)
+    if not latest:
+        return {
+            "agent_id": agent_id.upper(),
+            "ts": "",
+            "wpa3_status": 0,
+            "wps_status": 0,
+            "pmf_status": 0,
+            "default_ssid_status": 0,
+            "open_network_status": 0,
+            "score": 0
+        }
+    return latest
+
+# ── Executive Report Exporter ────────────────────────────────────────────────
+@app.get("/api/reports/export/{agent_id}")
+def export_report(agent_id: str, format: str = "html"):
+    aid = agent_id.upper()
+    reports = load_reports()
+    if aid not in reports:
+        raise HTTPException(status_code=404, detail="No scan report found for Agent ID: " + agent_id)
+    
+    report = reports[aid]
+    wifi = report.get("wifi", {})
+    devices = report.get("devices", [])
+    scan = report.get("wifi_scan", [])
+    score = report.get("security_score", 100)
+    alerts = report.get("alerts", [])
+    compliance = db.get_latest_compliance(aid) or {"score": 0, "wpa3_status":0, "wps_status":0, "pmf_status":0, "default_ssid_status":0, "open_network_status":0}
+    
+    if format == "csv":
+        import csv
+        import io
+        from fastapi.responses import StreamingResponse
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        writer.writerow(["REPORT SUMMARY", f"Agent: {aid}", f"Security Score: {score}%"])
+        writer.writerow([])
+        writer.writerow(["ACTIVE ALERTS"])
+        writer.writerow(["Severity", "Category", "Message", "Remediation"])
+        for a in alerts:
+            writer.writerow([a.get("severity"), a.get("category"), a.get("message"), a.get("remediation", "No remediation recommended.")])
+            
+        writer.writerow([])
+        writer.writerow(["CONNECTED SUBNET DEVICES"])
+        writer.writerow(["Status", "IP Address", "MAC Address", "Hostname", "Vendor", "Latency"])
+        for d in devices:
+            status = "Host" if d.get("is_host") else "Blacklisted" if d.get("is_blacklisted") else "Whitelisted" if d.get("is_whitelisted") else "Unknown"
+            writer.writerow([status, d.get("ip"), d.get("mac"), d.get("hostname"), d.get("vendor"), d.get("latency_ms")])
+            
+        output.seek(0)
+        return StreamingResponse(
+            io.BytesIO(output.read().encode("utf-8")),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=WiFi_Sentinel_Report_{aid}.csv"}
+        )
+        
+    else:
+        from fastapi.responses import HTMLResponse
+        
+        alerts_html = "".join([
+            f"""
+            <div class="alert-box {a.get('severity', 'info')}">
+                <h3>{a.get('category')} <span class="badge {a.get('severity')}">{a.get('severity', '').upper()}</span></h3>
+                <p><strong>Finding:</strong> {a.get('message')}</p>
+                <p class="remediation"><strong>Remediation:</strong> {a.get('remediation')}</p>
+            </div>
+            """ for a in alerts
+        ]) or "<p>No active threats found. Compliance checklist passed.</p>"
+        
+        devices_rows = "".join([
+            f"""
+            <tr>
+                <td>{"Host" if d.get('is_host') else "Unknown"}</td>
+                <td>{d.get('ip')}</td>
+                <td>{d.get('mac')}</td>
+                <td>{d.get('hostname') or '--'}</td>
+                <td>{d.get('vendor')}</td>
+            </tr>
+            """ for d in devices
+        ])
+        
+        compliance_score = compliance.get("score", 0)
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Executive Security Report – {aid}</title>
+            <style>
+                body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1e293b; background: #fff; margin: 40px; line-height: 1.5; }}
+                .header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 30px; }}
+                .title {{ font-size: 24px; font-weight: 700; color: #0f172a; }}
+                .meta {{ font-size: 14px; color: #64748b; text-align: right; }}
+                .kpi-row {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px; }}
+                .kpi-card {{ border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; text-align: center; }}
+                .kpi-val {{ font-size: 32px; font-weight: 800; color: #0f172a; margin-top: 5px; }}
+                .section {{ margin-bottom: 40px; }}
+                .section-title {{ font-size: 18px; font-weight: 700; color: #1e293b; border-left: 4px solid #3b82f6; padding-left: 10px; margin-bottom: 20px; }}
+                .alert-box {{ border: 1px solid #e2e8f0; border-left: 5px solid #cbd5e1; border-radius: 6px; padding: 15px; margin-bottom: 15px; }}
+                .alert-box.critical {{ border-left-color: #ef4444; background: #fef2f2; }}
+                .alert-box.high {{ border-left-color: #f97316; background: #fff7ed; }}
+                .alert-box.medium {{ border-left-color: #eab308; background: #fefce8; }}
+                .alert-box.low {{ border-left-color: #22c55e; background: #f0fdf4; }}
+                .badge {{ font-size: 10px; padding: 3px 8px; border-radius: 4px; font-weight: 700; color: #fff; text-transform: uppercase; float: right; }}
+                .badge.critical {{ background: #ef4444; }}
+                .badge.high {{ background: #f97316; }}
+                .badge.medium {{ background: #eab308; color: #000; }}
+                .badge.low {{ background: #22c55e; }}
+                .remediation {{ margin-top: 10px; font-size: 13px; color: #0369a1; background: #f0f9ff; padding: 10px; border-radius: 4px; border: 1px dashed #bae6fd; }}
+                table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }}
+                th, td {{ border-bottom: 1px solid #e2e8f0; padding: 10px 12px; text-align: left; }}
+                th {{ background: #f8fafc; font-weight: 700; }}
+                @media print {{
+                    body {{ margin: 0; }}
+                    button {{ display: none; }}
+                    .no-print {{ display: none; }}
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="no-print" style="margin-bottom:20px; text-align:right;">
+                <button onclick="window.print()" style="padding:10px 20px; background:#3b82f6; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:700;">Print Report / Save as PDF</button>
+            </div>
+            
+            <div class="header">
+                <div>
+                    <div class="title">WiFi Sentinel Security Audit</div>
+                    <div style="font-size:14px; color:#64748b; margin-top:5px;">Wireless Operations Platform – Executive Assessment</div>
+                </div>
+                <div class="meta">
+                    <strong>Report ID:</strong> {aid}<br>
+                    <strong>Generated:</strong> {compliance.get('ts') or 'N/A'}<br>
+                    <strong>Connected SSID:</strong> {wifi.get('ssid', 'Unknown')}
+                </div>
+            </div>
+            
+            <div class="kpi-row">
+                <div class="kpi-card">
+                    <div style="color:#64748b; font-size:14px;">Overall Security Score</div>
+                    <div class="kpi-val" style="color:{"#22c55e" if score >= 80 else "#eab308" if score >= 60 else "#ef4444"}">{score}%</div>
+                </div>
+                <div class="kpi-card">
+                    <div style="color:#64748b; font-size:14px;">CIS Compliance Score</div>
+                    <div class="kpi-val" style="color:{"#22c55e" if compliance_score >= 80 else "#eab308" if compliance_score >= 60 else "#ef4444"}">{compliance_score}%</div>
+                </div>
+                <div class="kpi-card">
+                    <div style="color:#64748b; font-size:14px;">Total Connected Devices</div>
+                    <div class="kpi-val">{len(devices)}</div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <div class="section-title">Active Security Threats & Recommendations</div>
+                {alerts_html}
+            </div>
+            
+            <div class="section">
+                <div class="section-title">Compliance Metrics Checklist</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Security Rule Check</th>
+                            <th>Status</th>
+                            <th>Target Recommendation</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>WPA3 Personal Preferred</td>
+                            <td><strong>{"PASS" if compliance.get("wpa3_status") else "FAIL"}</strong></td>
+                            <td>Use WPA3 to secure against brute-force handshake decryptions.</td>
+                        </tr>
+                        <tr>
+                            <td>WPS Secure (Disabled/Inactive)</td>
+                            <td><strong>{"PASS" if compliance.get("wps_status") else "FAIL"}</strong></td>
+                            <td>Ensure Wi-Fi Protected Setup is turned off to prevent PIN brute-forcing.</td>
+                        </tr>
+                        <tr>
+                            <td>Management Frame Protection (PMF)</td>
+                            <td><strong>{"PASS" if compliance.get("pmf_status") else "FAIL"}</strong></td>
+                            <td>Require PMF to prevent wireless deauthentication attacks.</td>
+                        </tr>
+                        <tr>
+                            <td>Non-Default SSID Pattern</td>
+                            <td><strong>{"PASS" if compliance.get("default_ssid_status") else "FAIL"}</strong></td>
+                            <td>Change SSID name to custom label to obfuscate router model.</td>
+                        </tr>
+                        <tr>
+                            <td>Open/WEP Airspace Mitigation</td>
+                            <td><strong>{"PASS" if compliance.get("open_network_status") else "FAIL"}</strong></td>
+                            <td>Ensure you are not connecting to unencrypted/WEP local networks.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="section">
+                <div class="section-title">Subnet Node Inventory</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>IP Address</th>
+                            <th>MAC Address</th>
+                            <th>Hostname</th>
+                            <th>Vendor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {devices_rows}
+                    </tbody>
+                </table>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html_content)
 
 # ── Startup ───────────────────────────────────────────────────────────────────
 @app.on_event("startup")

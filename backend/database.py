@@ -74,8 +74,33 @@ def init_db():
             severity    TEXT NOT NULL,
             category    TEXT NOT NULL,
             message     TEXT NOT NULL,
+            remediation TEXT,
             evidence    TEXT,
             dismissed   INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS assets (
+            mac         TEXT PRIMARY KEY,
+            type        TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            expected_vendor     TEXT,
+            expected_channel    TEXT,
+            expected_encryption TEXT,
+            location    TEXT,
+            owner       TEXT,
+            notes       TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS compliance (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id    TEXT NOT NULL,
+            ts          TEXT NOT NULL,
+            wpa3_status INTEGER DEFAULT 0,
+            wps_status  INTEGER DEFAULT 0,
+            pmf_status  INTEGER DEFAULT 0,
+            default_ssid_status INTEGER DEFAULT 0,
+            open_network_status INTEGER DEFAULT 0,
+            score       INTEGER DEFAULT 100
         );
 
         CREATE TABLE IF NOT EXISTS baselines (
@@ -90,6 +115,11 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_aps_agent    ON aps(agent_id, ts);
         CREATE INDEX IF NOT EXISTS idx_alerts_agent ON alerts(agent_id, ts);
     """)
+    try:
+        conn.execute("ALTER TABLE alerts ADD COLUMN remediation TEXT")
+        conn.commit()
+    except Exception:
+        pass
     conn.commit()
 
 
@@ -135,12 +165,12 @@ def insert_devices(scan_id: int, agent_id: str, devices: list):
     conn.commit()
 
 
-def insert_alert(agent_id: str, severity: str, category: str, message: str, evidence: dict = None):
+def insert_alert(agent_id: str, severity: str, category: str, message: str, remediation: str = None, evidence: dict = None):
     conn = _get_conn()
     ts = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO alerts(agent_id,ts,severity,category,message,evidence) VALUES(?,?,?,?,?,?)",
-        (agent_id, ts, severity, category, message,
+        "INSERT INTO alerts(agent_id,ts,severity,category,message,remediation,evidence) VALUES(?,?,?,?,?,?,?)",
+        (agent_id, ts, severity, category, message, remediation,
          json.dumps(evidence) if evidence else None)
     )
     conn.commit()
@@ -215,3 +245,45 @@ def purge_old_data(retention_days: int = 30):
     conn.execute("DELETE FROM alerts  WHERE ts < ? AND dismissed=1", (cutoff,))
     conn.execute("DELETE FROM baselines WHERE ts < ?", (cutoff,))
     conn.commit()
+
+
+def add_asset(mac: str, asset_type: str, name: str, expected_vendor: str = None, expected_channel: str = None, expected_encryption: str = None, location: str = None, owner: str = None, notes: str = None):
+    conn = _get_conn()
+    conn.execute(
+        """INSERT OR REPLACE INTO assets(mac, type, name, expected_vendor, expected_channel, expected_encryption, location, owner, notes)
+           VALUES(?,?,?,?,?,?,?,?,?)""",
+        (mac.upper(), asset_type, name, expected_vendor, expected_channel, expected_encryption, location, owner, notes)
+    )
+    conn.commit()
+
+
+def get_assets() -> list:
+    conn = _get_conn()
+    rows = conn.execute("SELECT * FROM assets").fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_asset(mac: str):
+    conn = _get_conn()
+    conn.execute("DELETE FROM assets WHERE mac=?", (mac.upper(),))
+    conn.commit()
+
+
+def insert_compliance(agent_id: str, wpa3: int, wps: int, pmf: int, default_ssid: int, open_network: int, score: int):
+    conn = _get_conn()
+    ts = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO compliance(agent_id, ts, wpa3_status, wps_status, pmf_status, default_ssid_status, open_network_status, score)
+           VALUES(?,?,?,?,?,?,?,?)""",
+        (agent_id.upper(), ts, wpa3, wps, pmf, default_ssid, open_network, score)
+    )
+    conn.commit()
+
+
+def get_latest_compliance(agent_id: str) -> dict:
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT * FROM compliance WHERE agent_id=? ORDER BY ts DESC LIMIT 1",
+        (agent_id.upper(),)
+    ).fetchone()
+    return dict(row) if row else None

@@ -66,6 +66,12 @@
             <button class="nav-btn" data-tab="devices" id="nav-devices">
                 <i data-lucide="laptop"></i><span>Subnet Devices</span>
             </button>
+            <button class="nav-btn" data-tab="inventory" id="nav-inventory">
+                <i data-lucide="database"></i><span>Asset Inventory</span>
+            </button>
+            <button class="nav-btn" data-tab="compliance" id="nav-compliance">
+                <i data-lucide="clipboard-check"></i><span>Compliance Center</span>
+            </button>
             <button class="nav-btn" data-tab="timeline" id="nav-timeline">
                 <i data-lucide="activity"></i><span>Security Timeline</span>
             </button>
@@ -98,6 +104,12 @@
                     <i data-lucide="wifi-off" id="conn-pill-icon"></i>
                     <span id="conn-pill-text">Scanning…</span>
                 </div>
+                <button class="btn-sm-secondary" id="export-html-btn" title="Export PDF/HTML Report">
+                    <i data-lucide="file-text"></i> PDF Report
+                </button>
+                <button class="btn-sm-secondary" id="export-csv-btn" title="Export CSV Data">
+                    <i data-lucide="download"></i> CSV Data
+                </button>
                 <button class="btn-audit" id="global-refresh-btn">
                     <i data-lucide="refresh-cw" id="refresh-icon"></i>
                     <span>Audit Now</span>
@@ -362,6 +374,9 @@
                             <button class="btn-ping" id="insp-ping-btn" disabled>
                                 <i data-lucide="activity"></i> Ping
                             </button>
+                            <button class="btn-approve" id="insp-promote-btn" disabled style="background:var(--purple-dim); color:var(--purple); border-color:rgba(167,139,250,0.3);">
+                                <i data-lucide="plus-circle"></i> Managed Asset
+                            </button>
                         </div>
                     </div>
                     <div class="card glassmorphism">
@@ -378,6 +393,112 @@
                             <li>Apply settings — device will be instantly disconnected.</li>
                         </ol>
                     </div>
+                </div>
+            </section>
+
+            <!-- ══ TAB: ASSET INVENTORY ═══════════════════════════════════ -->
+            <section class="tab-panel" id="panel-inventory">
+                <div class="device-inspector-grid">
+                    <!-- Add Asset Form -->
+                    <div class="card glassmorphism">
+                        <div class="card-hdr">
+                            <span class="card-title">Register Managed Asset</span>
+                            <i data-lucide="plus-circle" class="cyan"></i>
+                        </div>
+                        <form id="asset-form" class="router-guide" onsubmit="event.preventDefault(); saveAsset();" style="display:flex; flex-direction:column; gap:8px;">
+                            <div style="display:flex; gap:8px;">
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">MAC Address</label>
+                                    <input type="text" id="asset-mac" class="agent-input" placeholder="00:11:22:33:44:55" required style="width:100%;">
+                                </div>
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Asset Name</label>
+                                    <input type="text" id="asset-name" class="agent-input" placeholder="Office Printer / Main Router" required style="width:100%;">
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:8px;">
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Asset Type</label>
+                                    <select id="asset-type" class="agent-input" style="width:100%; height:32px;">
+                                        <option value="device">Subnet Device</option>
+                                        <option value="ap">Access Point (AP)</option>
+                                    </select>
+                                </div>
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Expected Vendor</label>
+                                    <input type="text" id="asset-vendor" class="agent-input" placeholder="Cisco / Apple" style="width:100%;">
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:8px;">
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Expected Channel</label>
+                                    <input type="text" id="asset-channel" class="agent-input" placeholder="36" style="width:100%;">
+                                </div>
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Expected Security</label>
+                                    <input type="text" id="asset-encryption" class="agent-input" placeholder="WPA3" style="width:100%;">
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:8px;">
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Location</label>
+                                    <input type="text" id="asset-location" class="agent-input" placeholder="Floor 2" style="width:100%;">
+                                </div>
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Owner</label>
+                                    <input type="text" id="asset-owner" class="agent-input" placeholder="IT Dept" style="width:100%;">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn-audit" style="margin-top:10px; width:100%; justify-content:center;">
+                                <i data-lucide="shield-check"></i> Register Asset
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Assets List -->
+                    <div class="card glassmorphism">
+                        <div class="card-hdr">
+                            <span class="card-title">Managed Assets Inventory</span>
+                            <i data-lucide="database" class="text-muted"></i>
+                        </div>
+                        <div class="table-wrap" style="max-height: 280px; overflow-y: auto;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th><th>MAC Address</th><th>Type</th><th>Expected Parameters</th><th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="assets-tbody">
+                                    <tr><td colspan="5" class="tbl-loading">Loading inventory…</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══ TAB: COMPLIANCE CENTER ═════════════════════════════════ -->
+            <section class="tab-panel" id="panel-compliance">
+                <!-- Compliance Summary Card -->
+                <div class="device-stats-row" style="margin-bottom: 1.5rem;">
+                    <div class="dstat-card glassmorphism" style="flex-direction:row; align-items:center; justify-content:space-between; gap:20px;">
+                        <div>
+                            <span class="dstat-label">CIS Benchmark Compliance Score</span>
+                            <span class="dstat-val cyan" id="comp-score-val" style="font-size: 2.2rem;">--%</span>
+                        </div>
+                        <div class="score-ring-wrap" style="width:70px; height:70px; margin:0;">
+                            <svg class="score-svg" viewBox="0 0 120 120">
+                                <circle class="ring-track" cx="60" cy="60" r="50"/>
+                                <circle class="ring-fill" id="comp-ring-fill" cx="60" cy="60" r="50"
+                                        stroke-dasharray="314.16" stroke-dashoffset="314.16"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Compliance Checklist -->
+                <div class="threat-list" id="compliance-checklist-container">
+                    <div class="empty-state"><i data-lucide="loader" class="spin"></i> Computing compliance...</div>
                 </div>
             </section>
 

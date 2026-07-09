@@ -914,3 +914,56 @@ body::before {
   .kpi-row { grid-template-columns: 1fr 1fr; }
   .device-stats-row { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Executive Reports & Inventory & Compliance Custom Styles */
+
+.btn-sm-secondary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.btn-sm-secondary:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.15);
+}
+.btn-sm-secondary svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Compliance Dial */
+#comp-ring-fill {
+  transition: stroke-dashoffset 0.6s ease, stroke 0.3s ease;
+}
+
+/* Custom coloring helpers */
+.cyan { color: var(--cyan); }
+.purple { color: var(--purple); }
+.purple-dim { background: var(--purple-dim); }
+
+/* Asset delete table button */
+.tbl-btn.block {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: var(--red);
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.tbl-btn.block:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
