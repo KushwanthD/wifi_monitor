@@ -6,11 +6,7 @@
 'use strict';
 
 // ── Detect base URL ──────────────────────────────────────────────────────────
-const BASE_URL = (() => {
-    const h = location.hostname;
-    if (h === 'localhost' || h === '127.0.0.1') return `http://${h}:8000`;
-    return 'https://wifi-monitor-x7jk.onrender.com';
-})();
+const BASE_URL = location.origin;
 
 const WS_URL = BASE_URL.replace(/^http/, 'ws') + '/ws/monitor';
 
