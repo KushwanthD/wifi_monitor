@@ -1,5 +1,5 @@
 param(
-    [string]$ServerUrl = 'https://wifi-monitor-x7jk.onrender.com/api/agent/report',
+    [string]$ServerUrl = 'http://127.0.0.1:8000/api/agent/report',
     [string]$StopFile  = ''
 )
 
