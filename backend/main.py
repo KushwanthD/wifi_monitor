@@ -175,6 +175,21 @@ def update_blacklist(payload: BlacklistUpdate):
 
 @app.get("/api/network/ping")
 def ping_device(ip: str):
+    try:
+        reports = load_reports()
+        for aid, r in reports.items():
+            devices = r.get("devices", [])
+            for d in devices:
+                if d.get("ip") == ip:
+                    lat = d.get("latency_ms")
+                    if lat is not None and lat != "ERR":
+                        try:
+                            return {"status": "online", "latency_ms": int(float(lat))}
+                        except Exception:
+                            pass
+    except Exception:
+        pass
+
     import subprocess, re, sys
     try:
         startupinfo = None
