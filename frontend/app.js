@@ -566,6 +566,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // DEVICES
 // ═══════════════════════════════════════════════════════════════════════════════
 function renderDevices(devices) {
+    currentDevices = devices;
     const tbody = $('devices-tbody');
     if (!tbody) return;
 
@@ -693,21 +694,21 @@ function setupDeviceInspector() {
     });
 }
 
-async function whitelistDevice(mac) {
+window.whitelistDevice = async function(mac) {
     whitelist = [...new Set([...whitelist, mac.toUpperCase()])];
     blacklist = blacklist.filter(m => m !== mac.toUpperCase());
     await saveWhitelistBlacklist();
     showToast('Approved', `Device ${mac} whitelisted.`, 'success');
     pollAgent();
-}
+};
 
-async function blacklistDevice(mac) {
+window.blacklistDevice = async function(mac) {
     blacklist = [...new Set([...blacklist, mac.toUpperCase()])];
     whitelist = whitelist.filter(m => m !== mac.toUpperCase());
     await saveWhitelistBlacklist();
     showToast('Blocked', `Device ${mac} blacklisted.`, 'high');
     pollAgent();
-}
+};
 
 async function loadWhitelistBlacklist() {
     try {
