@@ -39,7 +39,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setupThreatFilters();
     connectWebSocket();
     loadWhitelistBlacklist();
-    fetchOnlineAgents();
     fetchPublicIP();
     fetchAssets();
     setupReportExports();
@@ -50,9 +49,6 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         updateBannerVisibility();
     }
-
-    // Periodic fetch of online agents list every 15 s
-    setInterval(fetchOnlineAgents, 15000);
 });
 
 function updateBannerVisibility() {
