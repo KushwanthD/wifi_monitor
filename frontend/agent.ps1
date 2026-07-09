@@ -91,7 +91,7 @@ while ($true) {
 
         # Step 4: Read ARP cache for subnet devices
         $devices = @()
-        $devices += @{ ip=$host_ip; mac=$mac; vendor='This Workstation'; is_host=$true; latency_ms=0 }
+        $devices += @{ ip=$host_ip; mac=$mac; vendor='This Workstation'; hostname=$env:COMPUTERNAME; is_host=$true; latency_ms=0 }
         foreach ($line in (arp -a)) {
             if ($line -match '^\s*([0-9\.]+)\s+([0-9a-fA-F\-]{17})\s+(dynamic|static)') {
                 $dev_ip  = $Matches[1]
@@ -102,7 +102,13 @@ while ($true) {
                         $r = (New-Object System.Net.NetworkInformation.Ping).Send($dev_ip, 150)
                         if ($r.Status -eq 'Success') { $lat = $r.RoundtripTime }
                     } catch {}
-                    $devices += @{ ip=$dev_ip; mac=$dev_mac; vendor='Network Node'; is_host=$false; latency_ms=$lat }
+                    # Resolve hostname via DNS/NetBIOS (300ms timeout)
+                    $hn = ''
+                    try {
+                        $dns_task = [System.Net.Dns]::GetHostEntryAsync($dev_ip)
+                        if ($dns_task.Wait(300)) { $hn = $dns_task.Result.HostName }
+                    } catch {}
+                    $devices += @{ ip=$dev_ip; mac=$dev_mac; vendor='Network Node'; hostname=$hn; is_host=$false; latency_ms=$lat }
                 }
             }
         }
