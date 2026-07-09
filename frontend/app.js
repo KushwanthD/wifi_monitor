@@ -51,11 +51,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // Auto-restore previous agent session
     if (activeAgentId) {
         setTimeout(() => activateAgent(activeAgentId), 600);
+    } else {
+        updateBannerVisibility();
     }
 
     // Periodic fetch of online agents list every 15 s
     setInterval(fetchOnlineAgents, 15000);
 });
+
+function updateBannerVisibility() {
+    const banner = $('local-status-banner');
+    if (!banner) return;
+    if (activeAgentId) {
+        banner.classList.add('hidden');
+    } else {
+        banner.classList.remove('hidden');
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TABS
@@ -169,6 +181,7 @@ function activateAgent(agentId) {
     agentPollTimer = setInterval(pollAgent, 8000);
     loadAgentTimeline(activeAgentId);
     fetchCompliance();
+    updateBannerVisibility();
 }
 
 function disconnectAgent() {
@@ -180,6 +193,7 @@ function disconnectAgent() {
     consoleLog('Agent disconnected.', 'warn');
     resetDashboard();
     fetchCompliance();
+    updateBannerVisibility();
 }
 
 async function pollAgent() {
