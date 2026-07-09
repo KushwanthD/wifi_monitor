@@ -689,9 +689,21 @@ function setupDeviceInspector() {
         const btn = $('insp-ping-btn');
         btn.disabled = true;
         btn.textContent = 'Pinging…';
+        
+        let data = null;
         try {
-            const res = await fetch(`${BASE_URL}/api/network/ping?ip=${selectedDevice.ip}`);
-            const data = await res.json();
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 1200);
+            let res = null;
+            try {
+                res = await fetch(`http://127.0.0.1:8000/api/network/ping?ip=${selectedDevice.ip}`, { signal: controller.signal });
+                clearTimeout(timeoutId);
+            } catch(err) {
+                // Fallback to current domain server (e.g. Render)
+                res = await fetch(`${BASE_URL}/api/network/ping?ip=${selectedDevice.ip}`);
+            }
+            data = await res.json();
+            
             const el = $('insp-latency');
             if (data.status === 'online') {
                 if (el) el.textContent = data.latency_ms + 'ms';
