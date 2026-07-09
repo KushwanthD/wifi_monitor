@@ -1,3 +1,8 @@
+param(
+    [string]$ServerUrl = 'https://wifi-monitor-x7jk.onrender.com/api/agent/report',
+    [string]$StopFile  = ''
+)
+
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -9,23 +14,11 @@ public class WifiNative {
 '@ -ErrorAction SilentlyContinue
 
 $agent_id = $env:COMPUTERNAME.Trim().ToUpper()
-$api_url  = 'https://wifi-monitor-x7jk.onrender.com/api/agent/report'
+$api_url  = $ServerUrl
 $interface_name = 'Wi-Fi'
 
-Write-Host ''
-Write-Host '  ==========================================' -ForegroundColor Cyan
-Write-Host '    WiFi Monitor - Remote Security Agent' -ForegroundColor Cyan
-Write-Host '  ==========================================' -ForegroundColor Cyan
-Write-Host ''
-Write-Host ('  Agent ID  : ' + $agent_id) -ForegroundColor Green
-Write-Host '  Dashboard : https://wifi-monitor-x7jk.onrender.com' -ForegroundColor Cyan
-Write-Host ''
-Write-Host '  Enter your Agent ID on the website to connect.' -ForegroundColor DarkYellow
-Write-Host '  Uploading scans every ~7 seconds. Press Ctrl+C to stop.' -ForegroundColor DarkYellow
-Write-Host '  ==========================================' -ForegroundColor Cyan
-Write-Host ''
-
 while ($true) {
+    if ($StopFile -and (Test-Path $StopFile)) { break }
     try {
         # Step 1: Trigger hardware Wi-Fi scan (async - results ready in ~4s)
         try {

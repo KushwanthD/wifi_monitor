@@ -1,11 +1,15 @@
 import os
 import json
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
+import subprocess
+import psutil
+import string
+import random
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing import List, Optional, Any
 
 from services.wifi_scanner import WiFiScanner
@@ -43,6 +47,7 @@ async def add_private_network_headers(request, call_next):
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 FRONTEND_DIR   = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
+AGENT_SCRIPT   = os.path.join(FRONTEND_DIR, "agent.ps1")
 WHITELIST_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "whitelist.json"))
 BLACKLIST_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "blacklist.json"))
 
@@ -78,6 +83,31 @@ def save_blacklist(macs: List[str]):
             json.dump(macs, f, indent=4)
     except Exception as e:
         print(f"Error saving blacklist: {e}")
+
+# ── Local agent process helpers ────────────────────────────────────────────────
+
+def is_local_agent_running() -> bool:
+    try:
+        for proc in psutil.process_iter(['name', 'cmdline']):
+            try:
+                name = (proc.info.get('name') or '').lower()
+                cmdline = proc.info.get('cmdline') or []
+                if any(keyword in name for keyword in ('powershell.exe', 'pwsh.exe', 'powershell')):
+                    if any('agent.ps1' in str(part).lower() for part in cmdline):
+                        return True
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"Error checking local agent processes: {e}")
+    return False
+
+# Global state for pairing code
+LOCAL_PAIRING_CODE = None
+
+def generate_pairing_code() -> str:
+    global LOCAL_PAIRING_CODE
+    LOCAL_PAIRING_CODE = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    return LOCAL_PAIRING_CODE
 
 # ── Request models ────────────────────────────────────────────────────────────
 class WhitelistUpdate(BaseModel):
@@ -358,7 +388,30 @@ def save_reports(reports):
 
 # ── Agent Report endpoint (main cloud receiver) ───────────────────────────────
 @app.post("/api/agent/report")
-async def receive_agent_report(payload: AgentReport):
+async def receive_agent_report(request: Request):
+    try:
+        payload = await request.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {e}")
+
+    if isinstance(payload, dict):
+        for device in payload.get('devices', []):
+            if isinstance(device, dict):
+                open_ports = device.get('open_ports')
+                if isinstance(open_ports, dict):
+                    device['open_ports'] = [open_ports] if open_ports else []
+                elif open_ports is None:
+                    device['open_ports'] = []
+        wifi_scan = payload.get('wifi_scan')
+        if isinstance(wifi_scan, dict):
+            payload['wifi_scan'] = [wifi_scan]
+
+    try:
+        payload = AgentReport.model_validate(payload)
+    except ValidationError as exc:
+        print("Agent report validation failed:", exc)
+        raise HTTPException(status_code=422, detail=json.loads(exc.json()))
+
     aid = payload.agent_id.upper()
     wifi = payload.wifi.dict()
     auth_upper = wifi["authentication"].upper()
@@ -459,6 +512,54 @@ def get_agent_report(agent_id: str):
 def list_active_agents():
     reports = load_reports()
     return list(reports.keys())
+
+@app.get("/api/agent/local-status")
+def get_local_agent_status():
+    global LOCAL_PAIRING_CODE
+    running = is_local_agent_running()
+    if running and not LOCAL_PAIRING_CODE:
+        generate_pairing_code()
+    return {"running": running, "pairing_code": LOCAL_PAIRING_CODE if running else None}
+
+@app.post("/api/agent/run-local")
+def run_local_agent():
+    global LOCAL_PAIRING_CODE
+    if is_local_agent_running():
+        if not LOCAL_PAIRING_CODE:
+            generate_pairing_code()
+        return {"status": "already_running", "message": "Local agent is already running.", "pairing_code": LOCAL_PAIRING_CODE}
+
+    if not os.path.exists(AGENT_SCRIPT):
+        raise HTTPException(status_code=500, detail="Local agent script not found.")
+
+    creationflags = 0
+    if hasattr(subprocess, 'CREATE_NO_WINDOW'):
+        creationflags |= subprocess.CREATE_NO_WINDOW
+    if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
+        creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
+
+    try:
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", AGENT_SCRIPT],
+            cwd=FRONTEND_DIR,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+            shell=False
+        )
+        generate_pairing_code()
+        return {"status": "started", "message": "Local agent launched on the backend.", "pairing_code": LOCAL_PAIRING_CODE}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/agent/verify-pairing")
+def verify_pairing(code: str):
+    if not LOCAL_PAIRING_CODE or code.upper() != LOCAL_PAIRING_CODE:
+        raise HTTPException(status_code=400, detail="Invalid or expired pairing code.")
+    # The agent ID is the COMPUTERNAME as per agent.ps1
+    agent_id = os.environ.get("COMPUTERNAME", "UNKNOWN").upper()
+    return {"status": "success", "agent_id": agent_id}
 
 # ── Alert management endpoints ────────────────────────────────────────────────
 @app.get("/api/alerts/{agent_id}")
@@ -621,7 +722,7 @@ def export_report(agent_id: str, format: str = "html"):
         return StreamingResponse(
             io.BytesIO(output.read().encode("utf-8")),
             media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename=WiFi_Sentinel_Report_{aid}.csv"}
+            headers={"Content-Disposition": f"attachment; filename=WiFi_Security_Report_{aid}.csv"}
         )
         
     else:
@@ -694,7 +795,7 @@ def export_report(agent_id: str, format: str = "html"):
             
             <div class="header">
                 <div>
-                    <div class="title">WiFi Sentinel Security Audit</div>
+                    <div class="title">WiFi Security Monitoring Tool Audit</div>
                     <div style="font-size:14px; color:#64748b; margin-top:5px;">Wireless Operations Platform – Executive Assessment</div>
                 </div>
                 <div class="meta">

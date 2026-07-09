@@ -361,6 +361,21 @@ body::before {
 }
 .banner-dl-btn:hover { opacity: 0.85; text-decoration: none; }
 .banner-dl-btn svg { width: 13px; height: 13px; }
+.banner-dl-secondary { background: transparent; color: var(--yellow); border: 1px solid rgba(234,179,8,0.4); }
+.banner-dl-btn { border: none; cursor: pointer; font-family: inherit; }
+
+/* Allow modal */
+.allow-modal { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; }
+.allow-modal.hidden { display: none; }
+.allow-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.65); }
+.allow-modal-card {
+  position: relative; z-index: 1; max-width: 420px; width: 90%;
+  padding: 28px; border-radius: var(--radius-lg); text-align: center;
+}
+.allow-modal-icon { font-size: 2rem; color: var(--cyan); margin-bottom: 12px; }
+.allow-modal-card h2 { font-size: 1.2rem; margin-bottom: 10px; }
+.allow-modal-card p { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 20px; }
+.allow-modal-actions { display: flex; gap: 10px; justify-content: center; }
 
 /* Viewport */
 .viewport {

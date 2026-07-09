@@ -28,7 +28,7 @@ def test_html_report():
     res = requests.get(f"{BASE_URL}/api/reports/export/TEST-LAPTOP?format=html")
     assert res.status_code == 200, f"Expected 200, got {res.status_code}"
     html = res.text
-    assert "WiFi Sentinel Security Audit" in html, "Report header missing"
+    assert "WiFi Security Monitoring Tool Audit" in html, "Report header missing"
     assert "CIS Compliance Score" in html, "Compliance score missing"
     assert "Active Security Threats" in html, "Threat list header missing"
     print("Report HTML Sample Length:", len(html))

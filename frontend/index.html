@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WiFi Sentinel – Security Intelligence Platform</title>
+    <title>WiFi Security Monitoring Tool</title>
     <meta name="description" content="Real-time Wi-Fi threat detection, device inventory, and security assessment platform with behavioral baselining and actionable threat intelligence.">
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -13,8 +13,12 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        const STATIC_PREFIX = location.protocol === 'file:' ? '.' : '/static';
+        document.write('<base href="' + STATIC_PREFIX + '/">');
+    </script>
     <!-- Styles -->
-    <link rel="stylesheet" href="/static/style.css?v=40">
+    <link rel="stylesheet" href="style.css?v=40">
 </head>
 <body>
 <div class="app-shell">
@@ -27,8 +31,8 @@
                 <i data-lucide="shield-alert" class="logo-icon-svg"></i>
             </div>
             <div>
-                <div class="logo-name">WiFi<span class="logo-accent">Sentinel</span></div>
-                <div class="logo-tagline">Security Intelligence</div>
+                <div class="logo-name">WiFi<span class="logo-accent">Security</span></div>
+                <div class="logo-tagline">Monitoring Tool</div>
             </div>
         </div>
 
@@ -120,13 +124,19 @@
             </div>
         </header>
 
-        <!-- Scanner download banner -->
         <div id="local-status-banner" class="download-banner hidden">
-            <i data-lucide="download-cloud"></i>
-            <span>Run the local agent to enable live Wi-Fi auditing on this device.</span>
-            <a href="/static/run_wifimonitor.bat" download class="banner-dl-btn">
-                <i data-lucide="download"></i> Download Agent
-            </a>
+            <i data-lucide="shield-check"></i>
+            <div>
+                <span>Start the local scanning agent on the backend</span>
+                <div class="banner-command"><span id="local-agent-status">Checking local agent status...</span></div>
+            </div>
+            <button id="run-local-agent-btn" class="banner-dl-btn">
+                <i data-lucide="play-circle"></i> Start Local Agent
+            </button>
+            <div id="pairing-code-display" class="hidden" style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+                <span class="text-muted text-sm">Mobile Pairing Code:</span>
+                <span id="pairing-code-val" style="font-size: 1.5rem; font-weight: 800; color: var(--cyan); letter-spacing: 2px;">------</span>
+            </div>
         </div>
 
         <!-- Scroll viewport -->
@@ -658,9 +668,20 @@
     </main>
 </div>
 
+<!-- Mobile Pairing Modal -->
+<div id="mobile-pairing-modal" class="modal-overlay hidden">
+    <div class="modal-content glassmorphism" style="max-width: 400px; text-align: center; padding: 2rem;">
+        <i data-lucide="smartphone" style="font-size: 3rem; color: var(--cyan); margin-bottom: 1rem;"></i>
+        <h2 style="margin-bottom: 1rem;">Mobile Connect</h2>
+        <p class="text-muted" style="margin-bottom: 1.5rem; font-size: 0.9rem;">Enter the 6-character Pairing Code shown on your PC dashboard to view live security data.</p>
+        <input type="text" id="mobile-pairing-input" class="agent-input" placeholder="e.g. A3X9B1" maxlength="6" style="text-align: center; font-size: 1.5rem; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 1.5rem;">
+        <button id="mobile-pairing-btn" class="btn-audit" style="width: 100%; justify-content: center;">Connect to Agent</button>
+    </div>
+</div>
+
 <!-- Toast container -->
 <div class="toast-area" id="toast-area"></div>
 
-<script src="/static/app.js?v=43"></script>
+<script src="app.js?v=43"></script>
 </body>
 </html>

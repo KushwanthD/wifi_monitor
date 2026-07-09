@@ -6,7 +6,7 @@
 'use strict';
 
 // ── Detect base URL ──────────────────────────────────────────────────────────
-const BASE_URL = location.origin;
+const BASE_URL = location.origin && location.origin !== 'null' ? location.origin : 'http://127.0.0.1:8000';
 
 const WS_URL = BASE_URL.replace(/^http/, 'ws') + '/ws/monitor';
 
@@ -49,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => activateAgent(activeAgentId), 600);
     } else {
         updateBannerVisibility();
+        checkLocalAgentStatus();
     }
 });
 
@@ -874,11 +875,90 @@ function setupButtons() {
         }
     });
 
+    $('run-local-agent-btn')?.addEventListener('click', async () => {
+        try {
+            const res = await fetch(`${BASE_URL}/api/agent/run-local`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || data.message || 'Unable to start local agent');
+            showToast('Agent Started', data.message || 'Local agent launched on backend.', 'success');
+            if (data.pairing_code) {
+                $('pairing-code-val').textContent = data.pairing_code;
+                $('pairing-code-display').classList.remove('hidden');
+            }
+            await checkLocalAgentStatus();
+        } catch (e) {
+            showToast('Run Agent Failed', e.message, 'high');
+        }
+    });
+
     $('clear-console-btn')?.addEventListener('click', () => {
         const box = $('console-stream');
         if (box) box.innerHTML = '<div class="cline sys">[SYSTEM] Console cleared.</div>';
     });
 }
+
+async function checkLocalAgentStatus() {
+    const statusEl = $('local-agent-status');
+    const btn = $('run-local-agent-btn');
+    if (!statusEl || !btn) return;
+    try {
+        const res = await fetch(`${BASE_URL}/api/agent/local-status`);
+        const data = await res.json();
+        if (data.running) {
+            statusEl.textContent = 'Local agent is already running.';
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="check-circle"></i> Agent Running';
+            if (data.pairing_code) {
+                $('pairing-code-val').textContent = data.pairing_code;
+                $('pairing-code-display').classList.remove('hidden');
+            }
+        } else {
+            statusEl.textContent = 'Local agent is not running.';
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="play-circle"></i> Start Local Agent';
+            $('pairing-code-display').classList.add('hidden');
+        }
+    } catch (e) {
+        statusEl.textContent = 'Could not determine local agent status.';
+        btn.disabled = false;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MOBILE PAIRING LOGIC
+// ═══════════════════════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+    // If mobile device, show modal
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+    if (isMobile && !activeAgentId) {
+        $('mobile-pairing-modal')?.classList.remove('hidden');
+    }
+
+    $('mobile-pairing-btn')?.addEventListener('click', async () => {
+        const code = $('mobile-pairing-input').value.trim().toUpperCase();
+        if (code.length !== 6) {
+            showToast('Invalid Code', 'Pairing code must be 6 characters.', 'high');
+            return;
+        }
+        
+        try {
+            // Verify code with backend
+            const res = await fetch(`${BASE_URL}/api/agent/verify-pairing?code=${code}`);
+            if (!res.ok) throw new Error('Invalid or expired pairing code.');
+            
+            const data = await res.json();
+            
+            $('mobile-pairing-modal').classList.add('hidden');
+            showToast('Connected', 'Successfully paired with Desktop Agent.', 'success');
+            
+            // Connect using the agent ID provided by the backend
+            activateAgent(data.agent_id);
+            
+        } catch(e) {
+            showToast('Pairing Failed', e.message, 'high');
+        }
+    });
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PUBLIC IP
