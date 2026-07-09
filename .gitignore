@@ -23,3 +23,7 @@ Thumbs.db
 
 # Log Files
 *.log
+
+# Database Files
+backend/wifimon.db*
+backend/agent_reports.json
