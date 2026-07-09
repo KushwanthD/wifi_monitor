@@ -430,14 +430,14 @@ body::before {
 /* Overview grid: 4 quadrants */
 .overview-grid {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 280px 1fr 1fr;
   grid-template-rows: auto auto;
   gap: 14px;
 }
-.card-score-ring  { grid-row: 1 / 3; }
-.card-alerts-panel { grid-column: 2; grid-row: 1; }
+.card-score-ring  { grid-column: 1; grid-row: 1 / 3; }
+.card-alerts-panel { grid-column: 2 / 4; grid-row: 1; }
 .card-score-chart { grid-column: 2; grid-row: 2; }
-.card-conn-detail { display: none; } /* shown below on smaller grids */
+.card-conn-detail { grid-column: 3; grid-row: 2; display: block; }
 
 /* Score ring */
 .score-ring-wrap {
@@ -899,8 +899,7 @@ body::before {
 @media (max-width: 1200px) {
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
   .overview-grid { grid-template-columns: 1fr; }
-  .card-score-ring { grid-row: auto; }
-  .card-alerts-panel, .card-score-chart { grid-column: auto; grid-row: auto; }
+  .card-score-ring, .card-alerts-panel, .card-score-chart, .card-conn-detail { grid-column: auto; grid-row: auto; }
   .device-inspector-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 800px) {

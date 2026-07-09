@@ -295,7 +295,9 @@ function renderProfileCard(wifi) {
             ? `${wifi.receive_rate}↓ / ${wifi.transmit_rate}↑ Mbps` : '--');
     set('pr-level',   wifi.security_level);
     set('pr-adapter', wifi.description || wifi.interface_name);
-    set('pr-password', wifi.password_protected === true ? '✅ Yes' : wifi.password_protected === false ? '🚫 No' : '--');
+    const hasPwd = wifi.password_protected === true ? '✅ Yes' : wifi.password_protected === false ? '🚫 No' : '--';
+    set('pr-password',     hasPwd);
+    set('pr-password-box', hasPwd);
     set('pr-enc',     wifi.encryption_strength);
     set('pr-status',  wifi.status);
 

@@ -35,14 +35,14 @@ def _auth_risk(auth: str) -> tuple[str, int]:
     if "WPA3" in a:
         return ("info", 0)
     if "WPA2" in a:
-        return ("info", 2)
+        return ("low", 10)
     if "WPA" in a:
-        return ("low", 5)
+        return ("medium", 20)
     if "WEP" in a:
-        return ("high", 20)
+        return ("high", 30)
     if "OPEN" in a or "NONE" in a or a == "":
-        return ("critical", 35)
-    return ("low", 3)
+        return ("critical", 40)
+    return ("low", 5)
 
 
 def run_analysis(agent_id: str, wifi: dict, devices: list, wifi_scan: list,
@@ -61,9 +61,9 @@ def run_analysis(agent_id: str, wifi: dict, devices: list, wifi_scan: list,
     sev, auth_penalty = _auth_risk(auth)
     penalty += auth_penalty
 
-    if sev in ("critical", "high"):
+    if sev in ("critical", "high", "medium", "low", "info"):
         msg = _conn_security_msg(auth, wifi.get("ssid", "unknown"))
-        alerts.append(_alert(sev, "Insecure Connection", msg, {"auth": auth, "ssid": wifi.get("ssid")}))
+        alerts.append(_alert(sev, "WiFi Encryption", msg, {"auth": auth, "ssid": wifi.get("ssid")}))
 
     # Weak cipher
     if "TKIP" in (cipher or "").upper():
@@ -229,9 +229,13 @@ def _conn_security_msg(auth: str, ssid: str) -> str:
     if "WEP" in a:
         return (f"Your network '{ssid}' uses WEP which can be cracked in under 60 seconds with freely "
                 f"available tools. Upgrade your router to WPA2-AES or WPA3.")
-    if "WPA" in a and "WPA2" not in a and "WPA3" not in a:
+    if "WPA3" in a:
+        return (f"Connected to '{ssid}' using WPA3. Your connection is highly secure and protected against modern brute-force techniques.")
+    if "WPA2" in a:
+        return (f"Connected to '{ssid}' using WPA2. While secure, upgrading your router configuration to WPA3 is recommended for maximum security against brute-force handshake capture.")
+    if "WPA" in a:
         return (f"'{ssid}' uses original WPA (TKIP) which is deprecated. Upgrade to WPA2 or WPA3.")
-    return f"Security concern detected on '{ssid}' with auth '{auth}'."
+    return f"Connected using security protocol '{auth}' on '{ssid}'."
 
 
 def _load_json_file(filename: str) -> list:
