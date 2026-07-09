@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupButtons();
     setupDeviceInspector();
     setupThreatFilters();
+    setupForensics();
     connectWebSocket();
     loadWhitelistBlacklist();
     fetchPublicIP();
@@ -71,6 +72,7 @@ const TAB_META = {
     devices:   { title: 'Subnet Devices',         subtitle: 'Network inventory, access controls & device inspector' },
     inventory:  { title: 'Asset Inventory',        subtitle: 'Managed device and access point expected state definitions' },
     compliance: { title: 'Compliance Center',       subtitle: 'CIS Benchmark checklist and wireless hardening criteria' },
+    forensics:  { title: 'Traffic Forensics',       subtitle: 'Wireshark PCAP analyzer for insecure protocols, logins, and scans' },
     timeline:  { title: 'Security Timeline',      subtitle: 'Historical security events across all scans' },
     logs:      { title: 'Console Log',            subtitle: 'Live event stream & diagnostic output' },
 };
@@ -90,6 +92,7 @@ function switchTab(tab) {
     $('page-subtitle').textContent = TAB_META[tab]?.subtitle || '';
     if (tab === 'inventory') fetchAssets();
     if (tab === 'compliance') fetchCompliance();
+    if (tab === 'threats') fetchThreatCorrelation();
     lucide.createIcons();
 }
 
@@ -133,6 +136,7 @@ function handleWsMessage(msg) {
         if (msg.agent_id === activeAgentId) {
             renderFullReport(msg);
             fetchCompliance();
+            fetchThreatCorrelation();
         }
     } else if (msg.type === 'alert') {
         showToast(msg.title || 'Alert', msg.message, 'high');
@@ -173,6 +177,7 @@ function activateAgent(agentId) {
     agentPollTimer = setInterval(pollAgent, 8000);
     loadAgentTimeline(activeAgentId);
     fetchCompliance();
+    fetchThreatCorrelation();
     updateBannerVisibility();
 }
 
@@ -661,6 +666,29 @@ function populateInspector(d) {
     const promoteBtn = $('insp-promote-btn');
     if (promoteBtn) promoteBtn.disabled = false;
 
+    // Render Open Ports / Services
+    const portsTbody = $('insp-ports-tbody');
+    if (portsTbody) {
+        let ports = d.open_ports;
+        if (typeof ports === 'string' && ports) {
+            try { ports = JSON.parse(ports); } catch(e) { ports = []; }
+        }
+        if (ports && ports.length > 0) {
+            portsTbody.innerHTML = ports.map(p => {
+                const pnum = typeof p === 'number' ? p : (p.port || '--');
+                const pserv = typeof p === 'object' ? (p.service || 'Unknown') : 'Service';
+                return `<tr>
+                    <td class="mono" style="color:var(--cyan); padding:4px 8px;">${pnum}</td>
+                    <td style="color:var(--text-secondary); padding:4px 8px;">${pserv}</td>
+                </tr>`;
+            }).join('');
+        } else {
+            portsTbody.innerHTML = `<tr>
+                <td colspan="2" class="text-muted" style="text-align:center; padding:8px;">No open ports audited.</td>
+            </tr>`;
+        }
+    }
+
     // Router guide
     const routerLink = $('router-link');
     const routerMac  = $('router-block-mac');
@@ -1063,4 +1091,195 @@ function setupReportExports() {
         if (!activeAgentId) { showToast('No Agent', 'Connect an agent to export data.', 'medium'); return; }
         window.open(`${BASE_URL}/api/reports/export/${activeAgentId}?format=csv`, '_blank');
     });
+}
+
+async function fetchThreatCorrelation() {
+    if (!activeAgentId) return;
+    try {
+        const res = await fetch(`${BASE_URL}/api/threat-correlation/${activeAgentId}`);
+        const data = await res.json();
+        const tbody = $('threat-correlation-table-body');
+        if (tbody) {
+            if (data && data.length > 0) {
+                tbody.innerHTML = data.map(t => `
+                    <tr>
+                        <td class="mono font-bold" style="color:var(--yellow); padding: 8px;">${escHtml(t.vulnerability)}</td>
+                        <td style="color:var(--cyan); padding: 8px;">${escHtml(t.threat)}</td>
+                        <td style="color:var(--text-secondary); max-width: 320px; word-wrap: break-word; font-size: 0.76rem; padding: 8px;">${escHtml(t.exploit_scenario)}</td>
+                        <td style="padding: 8px;"><span class="badge ${t.impact_class}">${escHtml(t.impact)}</span></td>
+                        <td style="padding: 8px;"><span class="badge ${t.likelihood === 'High' ? 'badge-orange' : 'badge-yellow'}">${escHtml(t.likelihood)}</span></td>
+                    </tr>
+                `).join('');
+            } else {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="empty-state" style="text-align: center; padding: 2rem;">
+                            <i data-lucide="shield-check" class="empty-icon ok" style="font-size: 2rem; margin-bottom: 0.5rem; color: var(--green);"></i>
+                            <p style="font-size: 0.85rem; color: var(--text-secondary);">No correlated threats active. Your system parameters are secure!</p>
+                        </td>
+                    </tr>
+                `;
+            }
+            lucide.createIcons();
+        }
+    } catch(e) {}
+}
+
+let pcapChartInstance = null;
+
+function setupForensics() {
+    const dropzone = $('pcap-dropzone');
+    const fileInput = $('pcap-file-input');
+
+    if (!dropzone || !fileInput) return;
+
+    // Prevent default drag behaviors
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropzone.addEventListener(eventName, e => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, false);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropzone.addEventListener(eventName, () => dropzone.classList.add('highlight'), false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropzone.addEventListener(eventName, () => dropzone.classList.remove('highlight'), false);
+    });
+
+    dropzone.addEventListener('drop', e => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        if (files.length) handlePcapUpload(files[0]);
+    });
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) handlePcapUpload(fileInput.files[0]);
+    });
+}
+
+async function handlePcapUpload(file) {
+    if (!file) return;
+    
+    // UI feedback
+    const dropzone = $('pcap-dropzone');
+    const originalContent = dropzone.innerHTML;
+    dropzone.innerHTML = `
+        <i data-lucide="loader" class="spin upload-icon" style="font-size: 3rem; color: var(--cyan); margin-bottom: 1rem; display: block; margin-left: auto; margin-right: auto;"></i>
+        <h3>Uploading & Auditing Wireshark Traffic...</h3>
+        <p class="text-muted" style="margin-top: 8px;">Analyzing binary packet structures, resolving protocols, and parsing payload text segments.</p>
+    `;
+    lucide.createIcons();
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const res = await fetch(`${BASE_URL}/api/forensics/upload-pcap`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Failed to process PCAP file.');
+        }
+
+        const data = await res.json();
+        renderPcapResults(data);
+        showToast('Forensics Complete', `Successfully audited ${data.total_packets} packets.`, 'success');
+        
+    } catch (e) {
+        showToast('Forensics Error', e.message, 'high');
+        console.error(e);
+    } finally {
+        dropzone.innerHTML = originalContent;
+        lucide.createIcons();
+    }
+}
+
+function renderPcapResults(data) {
+    $('pcap-results-container').classList.remove('hidden');
+    
+    $('pcap-stat-packets').textContent = data.total_packets.toLocaleString();
+    $('pcap-stat-ips').textContent = data.ips_count;
+    $('pcap-stat-macs').textContent = data.macs_count;
+    $('pcap-stat-score').textContent = data.security_score + '%';
+    
+    // Render anomalies
+    const anomaliesList = $('pcap-anomalies-list');
+    if (anomaliesList) {
+        if (data.anomalies && data.anomalies.length > 0) {
+            anomaliesList.innerHTML = data.anomalies.map(a => `
+                <div class="threat-card ${a.severity}" style="margin-bottom: 8px; padding: 12px;">
+                    <div class="threat-hdr">
+                        <div class="threat-hdr-left">
+                            <span class="threat-sev-dot"></span>
+                            <div class="threat-cat" style="font-size: 0.85rem;">${escHtml(a.category)}</div>
+                        </div>
+                        <span class="alert-sev-tag ${a.severity}" style="font-size: 0.65rem; padding: 2px 6px;">${a.severity.toUpperCase()}</span>
+                    </div>
+                    <div class="threat-msg" style="margin-top:4px; font-size: 0.78rem;">${escHtml(a.message)}</div>
+                </div>
+            `).join('');
+        } else {
+            anomaliesList.innerHTML = `
+                <div class="empty-state" style="padding: 2rem;">
+                    <i data-lucide="shield-check" class="empty-icon ok" style="font-size: 2rem; color:var(--green); margin-bottom:0.5rem;"></i>
+                    <p style="font-size:0.85rem; color:var(--text-secondary);">No security anomalies observed in this traffic sample.</p>
+                </div>
+            `;
+        }
+    }
+
+    // Render protocol table
+    const tableBody = $('pcap-protocol-table-body');
+    if (tableBody) {
+        const rows = Object.entries(data.protocols).sort((a,b) => b[1] - a[1]);
+        tableBody.innerHTML = rows.map(([proto, count]) => `
+            <tr>
+                <td class="mono font-bold" style="color:var(--cyan); padding: 6px 12px;">${escHtml(proto)}</td>
+                <td style="padding: 6px 12px;">${count.toLocaleString()} packets</td>
+            </tr>
+        `).join('');
+    }
+
+    // Render protocol chart
+    const canvas = $('pcap-protocol-chart');
+    if (canvas) {
+        if (pcapChartInstance) {
+            pcapChartInstance.destroy();
+        }
+        
+        const labels = Object.keys(data.protocols);
+        const counts = Object.values(data.protocols);
+        
+        const colors = ['#06b6d4', '#eab308', '#ec4899', '#3b82f6', '#10b981', '#a855f7'];
+        
+        pcapChartInstance = new Chart(canvas, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: counts,
+                    backgroundColor: colors.slice(0, labels.length),
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                cutout: '70%'
+            }
+        });
+    }
+    
+    lucide.createIcons();
 }

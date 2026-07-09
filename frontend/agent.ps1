@@ -91,7 +91,38 @@ while ($true) {
 
         # Step 4: Read ARP cache for subnet devices
         $devices = @()
-        $devices += @{ ip=$host_ip; mac=$mac; vendor='This Workstation'; hostname=$env:COMPUTERNAME; is_host=$true; latency_ms=0 }
+        
+        # Helper function for fast TCP port checks
+        function Get-OpenPorts($targetIp) {
+            $open = @()
+            $ports = @(21, 22, 23, 80, 443, 445, 3389)
+            foreach ($port in $ports) {
+                $tcp = New-Object System.Net.Sockets.TcpClient
+                try {
+                    $ar = $tcp.BeginConnect($targetIp, $port, $null, $null)
+                    if ($ar.AsyncWaitHandle.WaitOne(45)) {
+                        if ($tcp.Connected) {
+                            $service = "Unknown"
+                            if ($port -eq 21) { $service = "FTP" }
+                            elseif ($port -eq 22) { $service = "SSH" }
+                            elseif ($port -eq 23) { $service = "Telnet" }
+                            elseif ($port -eq 80) { $service = "HTTP" }
+                            elseif ($port -eq 443) { $service = "HTTPS" }
+                            elseif ($port -eq 445) { $service = "SMB" }
+                            elseif ($port -eq 3389) { $service = "RDP" }
+                            $open += @{ port=$port; service=$service }
+                            $tcp.EndConnect($ar)
+                        }
+                    }
+                } catch {}
+                $tcp.Close()
+            }
+            return $open
+        }
+
+        $host_ports = Get-OpenPorts $host_ip
+        $devices += @{ ip=$host_ip; mac=$mac; vendor='This Workstation'; hostname=$env:COMPUTERNAME; is_host=$true; latency_ms=0; open_ports=$host_ports }
+        
         foreach ($line in (arp -a)) {
             if ($line -match '^\s*([0-9\.]+)\s+([0-9a-fA-F\-]{17})\s+(dynamic|static)') {
                 $dev_ip  = $Matches[1]
@@ -99,16 +130,19 @@ while ($true) {
                 if ($dev_ip.StartsWith($subnet_prefix) -and $dev_mac -ne 'FF:FF:FF:FF:FF:FF' -and $dev_mac -ne $mac) {
                     $lat = 'ERR'
                     try {
-                        $r = (New-Object System.Net.NetworkInformation.Ping).Send($dev_ip, 150)
+                        $r = (New-Object System.Net.NetworkInformation.Ping).Send($dev_ip, 120)
                         if ($r.Status -eq 'Success') { $lat = $r.RoundtripTime }
                     } catch {}
-                    # Resolve hostname via DNS/NetBIOS (300ms timeout)
+                    # Resolve hostname via DNS/NetBIOS (200ms timeout)
                     $hn = ''
                     try {
                         $dns_task = [System.Net.Dns]::GetHostEntryAsync($dev_ip)
-                        if ($dns_task.Wait(300)) { $hn = $dns_task.Result.HostName }
+                        if ($dns_task.Wait(200)) { $hn = $dns_task.Result.HostName }
                     } catch {}
-                    $devices += @{ ip=$dev_ip; mac=$dev_mac; vendor='Network Node'; hostname=$hn; is_host=$false; latency_ms=$lat }
+                    
+                    # Fast Port Scan
+                    $dev_ports = Get-OpenPorts $dev_ip
+                    $devices += @{ ip=$dev_ip; mac=$dev_mac; vendor='Network Node'; hostname=$hn; is_host=$false; latency_ms=$lat; open_ports=$dev_ports }
                 }
             }
         }

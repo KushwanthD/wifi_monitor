@@ -1,7 +1,7 @@
 import os
 import json
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -13,6 +13,8 @@ from services.network_scanner import NetworkScanner
 from services.security_auditor import SecurityAuditor
 import database as db
 import analysis
+from correlation import CorrelationEngine
+from pcap_analyzer import PcapAnalyzer
 
 app = FastAPI(title="WiFi Security Monitor API")
 
@@ -317,6 +319,7 @@ class DeviceDetails(BaseModel):
     hostname: str = ""
     is_host: bool = False
     latency_ms: Optional[Any] = "ERR"
+    open_ports: Optional[List[Any]] = None
 
 class NearbyNetwork(BaseModel):
     ssid: str = ""
@@ -397,7 +400,8 @@ async def receive_agent_report(payload: AgentReport):
             "hostname": d.hostname or "",
             "is_host": d.is_host, "latency_ms": d.latency_ms,
             "is_whitelisted": dev_mac in whitelist,
-            "is_blacklisted": dev_mac in blacklist
+            "is_blacklisted": dev_mac in blacklist,
+            "open_ports": d.open_ports
         })
 
     wifi_scan_list = [n.dict() for n in (payload.wifi_scan or [])]
@@ -511,6 +515,69 @@ def get_compliance(agent_id: str):
             "score": 0
         }
     return latest
+
+# ── Threat Correlation Engine ─────────────────────────────────────────────────
+@app.get("/api/threat-correlation/{agent_id}")
+def get_threat_correlation(agent_id: str):
+    aid = agent_id.upper()
+    reports = load_reports()
+    if aid not in reports:
+        return []
+    report = reports[aid]
+    wifi = report.get("wifi", {})
+    devices = report.get("devices", [])
+    alerts = report.get("alerts", [])
+    return CorrelationEngine.correlate(wifi, devices, alerts)
+
+# ── Wireshark PCAP Traffic Forensics ──────────────────────────────────────────
+@app.post("/api/forensics/upload-pcap")
+async def upload_pcap(file: UploadFile = File(...)):
+    import io
+    content = await file.read()
+    stream = io.BytesIO(content)
+    result = PcapAnalyzer.analyze(stream)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+# ── Airodump-ng CSV Log Ingestion ─────────────────────────────────────────────
+@app.post("/api/airspace/import-csv")
+async def import_airspace_csv(file: UploadFile = File(...)):
+    import io, csv
+    content = await file.read()
+    try:
+        csv_text = content.decode("utf-8", errors="ignore")
+        parts = csv_text.split('\n\n')
+        aps = []
+        if parts:
+            ap_data = parts[0]
+            reader = csv.reader(io.StringIO(ap_data.strip()))
+            headers = []
+            for row in reader:
+                if not row or len(row) == 0:
+                    continue
+                if "BSSID" in row[0]:
+                    headers = [h.strip() for h in row]
+                    continue
+                if headers and len(row) >= len(headers):
+                    ap_dict = {headers[i]: row[i].strip() for i in range(len(headers))}
+                    try:
+                        chan = ap_dict.get("channel", "1").strip()
+                        chan_num = int(chan) if chan.isdigit() else 1
+                    except Exception:
+                        chan_num = 1
+                    aps.append({
+                        "ssid": ap_dict.get("ESSID", "Unknown").strip(),
+                        "bssid": ap_dict.get("BSSID").strip(),
+                        "channel": str(chan_num),
+                        "signal": int(ap_dict.get("Power", "-90").strip() or "-90"),
+                        "authentication": ap_dict.get("Privacy", "WPA2").strip(),
+                        "encryption": ap_dict.get("Cipher", "CCMP").strip(),
+                        "band": "2.4 GHz" if chan_num <= 14 else "5 GHz"
+                    })
+        return {"status": "success", "aps": aps}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
 
 # ── Executive Report Exporter ────────────────────────────────────────────────
 @app.get("/api/reports/export/{agent_id}")

@@ -64,7 +64,8 @@ def init_db():
             vendor      TEXT,
             hostname    TEXT,
             is_host     INTEGER,
-            latency_ms  TEXT
+            latency_ms  TEXT,
+            open_ports  TEXT
         );
 
         CREATE TABLE IF NOT EXISTS alerts (
@@ -120,6 +121,11 @@ def init_db():
         conn.commit()
     except Exception:
         pass
+    try:
+        conn.execute("ALTER TABLE devices ADD COLUMN open_ports TEXT")
+        conn.commit()
+    except Exception:
+        pass
     conn.commit()
 
 
@@ -156,11 +162,12 @@ def insert_devices(scan_id: int, agent_id: str, devices: list):
     ts = datetime.now(timezone.utc).isoformat()
     conn = _get_conn()
     conn.executemany(
-        """INSERT INTO devices(scan_id,agent_id,ts,ip,mac,vendor,hostname,is_host,latency_ms)
-           VALUES(?,?,?,?,?,?,?,?,?)""",
+        """INSERT INTO devices(scan_id,agent_id,ts,ip,mac,vendor,hostname,is_host,latency_ms,open_ports)
+           VALUES(?,?,?,?,?,?,?,?,?,?)""",
         [(scan_id, agent_id, ts,
           d.get("ip"), d.get("mac"), d.get("vendor"), d.get("hostname",""),
-          1 if d.get("is_host") else 0, str(d.get("latency_ms",""))) for d in devices]
+          1 if d.get("is_host") else 0, str(d.get("latency_ms","")),
+          json.dumps(d.get("open_ports")) if d.get("open_ports") else None) for d in devices]
     )
     conn.commit()
 

@@ -72,6 +72,9 @@
             <button class="nav-btn" data-tab="compliance" id="nav-compliance">
                 <i data-lucide="clipboard-check"></i><span>Compliance Center</span>
             </button>
+            <button class="nav-btn" data-tab="forensics" id="nav-forensics">
+                <i data-lucide="scan"></i><span>Traffic Forensics</span>
+            </button>
             <button class="nav-btn" data-tab="timeline" id="nav-timeline">
                 <i data-lucide="activity"></i><span>Security Timeline</span>
             </button>
@@ -266,6 +269,35 @@
                         <p>No threats detected. Connect an agent to begin monitoring.</p>
                     </div>
                 </div>
+
+                <!-- Threat Correlation Matrix -->
+                <div class="card glassmorphism" style="margin-top: 1.5rem;">
+                    <div class="card-hdr">
+                        <span class="card-title">Vulnerability Threat Correlation Matrix</span>
+                        <span class="text-muted text-sm">Mapping active system flaws to real-world attack scenarios</span>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="min-width: 150px;">Detected Vulnerability</th>
+                                    <th style="min-width: 180px;">Potential Threat Vector</th>
+                                    <th>Exploit & Attack Scenario</th>
+                                    <th style="width: 100px;">Impact</th>
+                                    <th style="width: 100px;">Likelihood</th>
+                                </tr>
+                            </thead>
+                            <tbody id="threat-correlation-table-body">
+                                <tr>
+                                    <td colspan="5" class="empty-state" style="text-align: center; padding: 2rem;">
+                                        <i data-lucide="shield-alert" class="empty-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: var(--text-muted);"></i>
+                                        <p style="font-size: 0.85rem; color: var(--text-secondary);">No vulnerabilities parsed. Connect your active agent to run threat mappings.</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </section>
 
             <!-- ══ TAB: WI-FI AIRSPACE ════════════════════════════════════ -->
@@ -363,6 +395,24 @@
                             <div class="insp-row"><span>Hostname</span><strong id="insp-hostname">--</strong></div>
                             <div class="insp-row"><span>Vendor / OUI</span><strong id="insp-vendor">--</strong></div>
                             <div class="insp-row"><span>Latency</span><strong id="insp-latency">--</strong></div>
+                        </div>
+                        <div class="insp-row" style="margin-top:8px; border-top: 1px solid rgba(255,255,255,0.06); padding-top:8px; flex-direction:column; align-items:flex-start; gap:6px;">
+                            <span style="font-size:0.75rem; color:var(--text-secondary);">Exposed Services / Open Ports</span>
+                            <div style="width:100%; max-height:110px; overflow-y:auto; border-radius:4px; border:1px solid rgba(255,255,255,0.06);">
+                                <table class="data-table" style="background:transparent; box-shadow:none; margin:0; width:100%; font-size:0.72rem;">
+                                    <thead>
+                                        <tr style="background:rgba(255,255,255,0.03);">
+                                            <th style="padding:4px 8px;">Port</th>
+                                            <th style="padding:4px 8px;">Service</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="insp-ports-tbody">
+                                        <tr>
+                                            <td colspan="2" class="text-muted" style="text-align:center; padding:6px; font-size:0.72rem;">No open ports audited.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                         <div class="insp-actions">
                             <button class="btn-approve" id="insp-approve-btn" disabled>
@@ -499,6 +549,79 @@
                 <!-- Compliance Checklist -->
                 <div class="threat-list" id="compliance-checklist-container">
                     <div class="empty-state"><i data-lucide="loader" class="spin"></i> Computing compliance...</div>
+                </div>
+            </section>
+
+            <!-- ══ TAB: TRAFFIC FORENSICS ═════════════════════════════════ -->
+            <section class="tab-panel" id="panel-forensics">
+                <div class="forensics-grid-layout">
+                    <!-- Upload Card -->
+                    <div class="card glassmorphism file-upload-card" id="pcap-dropzone" style="text-align:center; padding: 3rem 2rem; margin-bottom: 1.5rem;">
+                        <i data-lucide="upload-cloud" class="upload-icon" style="font-size: 3rem; color: var(--cyan); margin-bottom: 1rem;"></i>
+                        <h3 style="margin-bottom: 0.5rem;">Upload Wireshark Packet Capture (.pcap)</h3>
+                        <p class="text-muted" style="margin-bottom: 1.5rem; font-size: 0.85rem;">Drag and drop your standard Ethernet PCAP file here, or click to browse</p>
+                        <input type="file" id="pcap-file-input" style="display:none;" accept=".pcap">
+                        <button class="btn btn-primary" onclick="document.getElementById('pcap-file-input').click()">Browse File</button>
+                    </div>
+
+                    <!-- Results Area (Hidden by default) -->
+                    <div id="pcap-results-container" class="hidden">
+                        <!-- Summary Cards -->
+                        <div class="stats-row" style="margin-bottom:1.5rem;">
+                            <div class="stat-card glassmorphism">
+                                <div class="stat-lbl">Total Packets Analyzed</div>
+                                <div class="stat-val" id="pcap-stat-packets">0</div>
+                            </div>
+                            <div class="stat-card glassmorphism">
+                                <div class="stat-lbl">Unique IPs Active</div>
+                                <div class="stat-val" id="pcap-stat-ips">0</div>
+                            </div>
+                            <div class="stat-card glassmorphism">
+                                <div class="stat-lbl">Unique MACs Active</div>
+                                <div class="stat-val" id="pcap-stat-macs">0</div>
+                            </div>
+                            <div class="stat-card glassmorphism">
+                                <div class="stat-lbl">Forensics Security Score</div>
+                                <div class="stat-val" id="pcap-stat-score">100%</div>
+                            </div>
+                        </div>
+
+                        <!-- Split Content -->
+                        <div class="twin-grid">
+                            <!-- Anomalies Feed -->
+                            <div class="card glassmorphism">
+                                <div class="card-hdr">
+                                    <span class="card-title">Traffic Anomalies & Plaintext Logins</span>
+                                </div>
+                                <div class="threat-list" id="pcap-anomalies-list" style="max-height: 400px; overflow-y: auto; padding: 1rem;">
+                                    <!-- Dynamic -->
+                                </div>
+                            </div>
+
+                            <!-- Protocol Breakdown -->
+                            <div class="card glassmorphism">
+                                <div class="card-hdr">
+                                    <span class="card-title">Protocol Distribution</span>
+                                </div>
+                                <div class="card-body" style="padding: 1.5rem;">
+                                    <div class="chart-container" style="height: 180px; margin-bottom: 1.5rem; display: flex; justify-content: center;">
+                                        <canvas id="pcap-protocol-chart" style="max-height: 180px; max-width: 180px;"></canvas>
+                                    </div>
+                                    <table class="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Protocol</th>
+                                                <th>Packet Count</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="pcap-protocol-table-body">
+                                            <!-- Dynamic -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
 

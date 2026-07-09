@@ -88,15 +88,47 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "        }" ^
     "        Start-Sleep -Milliseconds 150;" ^
     "        $devices = @();" ^
-    "        $devices += @{ 'ip' = $host_ip; 'mac' = $mac; 'vendor' = 'This Workstation'; 'is_host' = $true; 'latency_ms' = 0 };" ^
+    "        function GetOpenPorts($targetIp) {" ^
+    "            $open = @();" ^
+    "            $ports = @(21, 22, 23, 80, 443, 445, 3389);" ^
+    "            foreach ($port in $ports) {" ^
+    "                $tcp = New-Object System.Net.Sockets.TcpClient;" ^
+    "                try {" ^
+    "                    $ar = $tcp.BeginConnect($targetIp, $port, $null, $null);" ^
+    "                    if ($ar.AsyncWaitHandle.WaitOne(45)) {" ^
+    "                        if ($tcp.Connected) {" ^
+    "                            $service = 'Unknown';" ^
+    "                            if ($port -eq 21) { $service = 'FTP' }" ^
+    "                            elseif ($port -eq 22) { $service = 'SSH' }" ^
+    "                            elseif ($port -eq 23) { $service = 'Telnet' }" ^
+    "                            elseif ($port -eq 80) { $service = 'HTTP' }" ^
+    "                            elseif ($port -eq 443) { $service = 'HTTPS' }" ^
+    "                            elseif ($port -eq 445) { $service = 'SMB' }" ^
+    "                            elseif ($port -eq 3389) { $service = 'RDP' }" ^
+    "                            $open += @{ 'port' = $port; 'service' = $service };" ^
+    "                            $tcp.EndConnect($ar);" ^
+    "                        }" ^
+    "                    }" ^
+    "                } catch {}" ^
+    "                $tcp.Close();" ^
+    "            }" ^
+    "            return $open;" ^
+    "        }" ^
+    "        $host_ports = GetOpenPorts $host_ip;" ^
+    "        $devices += @{ 'ip' = $host_ip; 'mac' = $mac; 'vendor' = 'This Workstation'; 'is_host' = $true; 'latency_ms' = 0; 'open_ports' = $host_ports };" ^
     "        $arp = arp -a;" ^
     "        foreach ($line in $arp) {" ^
     "            if ($line -match '^\s*([0-9\.]+)\s+([0-9a-fA-F\-]{17})\s+(dynamic|static)') {" ^
     "                $ip = $Matches[1]; $dev_mac = $Matches[2].Replace('-', ':').ToUpper();" ^
     "                if ($ip.StartsWith($subnet_prefix) -and $dev_mac -ne 'FF:FF:FF:FF:FF:FF' -and $dev_mac -ne $mac) {" ^
     "                    $ping_time = 'ERR';" ^
-    "                    try { $ping = New-Object System.Net.NetworkInformation.Ping; $res = $ping.Send($ip, 150); if ($res.Status -eq 'Success') { $ping_time = $res.RoundtripTime } } catch {}" ^
-    "                    $devices += @{ 'ip' = $ip; 'mac' = $dev_mac; 'vendor' = 'Network Node'; 'is_host' = $false; 'latency_ms' = $ping_time }" ^
+    "                    try {" ^
+    "                        $ping = New-Object System.Net.NetworkInformation.Ping;" ^
+    "                        $res = $ping.Send($ip, 120);" ^
+    "                        if ($res.Status -eq 'Success') { $ping_time = $res.RoundtripTime }" ^
+    "                    } catch {}" ^
+    "                    $dev_ports = GetOpenPorts $ip;" ^
+    "                    $devices += @{ 'ip' = $ip; 'mac' = $dev_mac; 'vendor' = 'Network Node'; 'is_host' = $false; 'latency_ms' = $ping_time; 'open_ports' = $dev_ports }" ^
     "                }" ^
     "            }" ^
     "        }" ^
