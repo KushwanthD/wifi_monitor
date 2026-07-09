@@ -11,10 +11,12 @@ from typing import List, Optional, Any
 from services.wifi_scanner import WiFiScanner
 from services.network_scanner import NetworkScanner
 from services.security_auditor import SecurityAuditor
+import database as db
+import analysis
 
-app = FastAPI(title="WiFi Monitor API")
+app = FastAPI(title="WiFi Security Monitor API")
 
-# Enable CORS for development
+# ── CORS ─────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,10 +25,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Allow private network access (preflight and requests from public Render site)
 @app.middleware("http")
 async def add_private_network_headers(request, call_next):
-    # Handle preflight OPTIONS requests for private networks
     if request.method == "OPTIONS":
         from fastapi.responses import Response
         response = Response()
@@ -35,16 +35,16 @@ async def add_private_network_headers(request, call_next):
         response.headers["Access-Control-Allow-Headers"] = "*"
         response.headers["Access-Control-Allow-Private-Network"] = "true"
         return response
-        
     response = await call_next(request)
     response.headers["Access-Control-Allow-Private-Network"] = "true"
     return response
 
-FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
+# ── Paths ─────────────────────────────────────────────────────────────────────
+FRONTEND_DIR   = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
 WHITELIST_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "whitelist.json"))
 BLACKLIST_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "blacklist.json"))
 
-# Whitelist storage
+# ── Whitelist / Blacklist helpers ─────────────────────────────────────────────
 def load_whitelist() -> List[str]:
     if os.path.exists(WHITELIST_FILE):
         try:
@@ -61,7 +61,6 @@ def save_whitelist(macs: List[str]):
     except Exception as e:
         print(f"Error saving whitelist: {e}")
 
-# Blacklist storage
 def load_blacklist() -> List[str]:
     if os.path.exists(BLACKLIST_FILE):
         try:
@@ -78,16 +77,17 @@ def save_blacklist(macs: List[str]):
     except Exception as e:
         print(f"Error saving blacklist: {e}")
 
+# ── Request models ────────────────────────────────────────────────────────────
 class WhitelistUpdate(BaseModel):
     macs: List[str]
 
 class BlacklistUpdate(BaseModel):
     macs: List[str]
 
+# ── Existing local-scan endpoints (unchanged) ─────────────────────────────────
 @app.get("/api/wifi/connection")
 def get_wifi_connection():
-    connection = WiFiScanner.get_current_wifi_connection()
-    return connection
+    return WiFiScanner.get_current_wifi_connection()
 
 @app.get("/api/wifi/scan")
 def get_wifi_scan():
@@ -98,29 +98,21 @@ def get_devices():
     scan_data = NetworkScanner.get_connected_devices()
     if "error" in scan_data:
         raise HTTPException(status_code=500, detail=scan_data["error"])
-    
-    # Enrich devices with whitelist & blacklist status
     whitelist = load_whitelist()
     blacklist = load_blacklist()
     for dev in scan_data["devices"]:
         dev["is_whitelisted"] = dev["mac"] in whitelist
         dev["is_blacklisted"] = dev["mac"] in blacklist
-        
     return scan_data
 
 @app.get("/api/security/audit")
 def run_audit():
     conn = WiFiScanner.get_current_wifi_connection()
     wifi_ip, _ = NetworkScanner.get_wifi_interface_ip()
-    
-    # Run audit using details
     audit_data = SecurityAuditor.run_security_audit(conn, wifi_ip)
-    
-    # Add count of unwhitelisted & blacklisted devices on the network
     devices_data = NetworkScanner.get_connected_devices()
     unwhitelisted_count = 0
     blacklisted_count = 0
-    
     if "devices" in devices_data:
         whitelist = load_whitelist()
         blacklist = load_blacklist()
@@ -130,25 +122,20 @@ def run_audit():
                     blacklisted_count += 1
                 elif dev["mac"] not in whitelist:
                     unwhitelisted_count += 1
-                
     if blacklisted_count > 0:
-        # Heavily penalize security score for known blacklisted intruders
         audit_data["security_score"] = max(0, audit_data["security_score"] - (30 * blacklisted_count))
         audit_data["alerts"].append({
             "severity": "critical",
             "category": "Blacklisted Node Active",
-            "message": f"DETECTED {blacklisted_count} BLACKLISTED INTRUDER(S) ACTIVE ON YOUR WIFI! Eject these nodes immediately to protect subnet integrity."
+            "message": f"DETECTED {blacklisted_count} BLACKLISTED INTRUDER(S) ACTIVE ON YOUR WIFI!"
         })
-
     if unwhitelisted_count > 0:
-        # Penalize security score for unknown network devices
         audit_data["security_score"] = max(0, audit_data["security_score"] - min(10 * unwhitelisted_count, 30))
         audit_data["alerts"].append({
             "severity": "high",
             "category": "Intruder Alert",
-            "message": f"Detected {unwhitelisted_count} unauthorized device(s) on your subnet. Please review the network devices and approve or block them."
+            "message": f"Detected {unwhitelisted_count} unauthorized device(s) on your subnet."
         })
-        
     return audit_data
 
 @app.get("/api/whitelist")
@@ -158,7 +145,6 @@ def get_whitelist():
 @app.post("/api/whitelist")
 def update_whitelist(payload: WhitelistUpdate):
     save_whitelist([mac.upper() for mac in payload.macs])
-    # Remove from blacklist if whitelisted
     blacklist = load_blacklist()
     new_blacklist = [m for m in blacklist if m.upper() not in [x.upper() for x in payload.macs]]
     save_blacklist(new_blacklist)
@@ -171,7 +157,6 @@ def get_blacklist():
 @app.post("/api/blacklist")
 def update_blacklist(payload: BlacklistUpdate):
     save_blacklist([mac.upper() for mac in payload.macs])
-    # Remove from whitelist if blacklisted
     whitelist = load_whitelist()
     new_whitelist = [m for m in whitelist if m.upper() not in [x.upper() for x in payload.macs]]
     save_whitelist(new_whitelist)
@@ -179,34 +164,28 @@ def update_blacklist(payload: BlacklistUpdate):
 
 @app.get("/api/network/ping")
 def ping_device(ip: str):
-    import subprocess
-    import re
+    import subprocess, re
     try:
         startupinfo = None
         if hasattr(subprocess, 'STARTUPINFO'):
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-
         result = subprocess.run(
             ["ping", "-n", "1", "-w", "1000", ip],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-            startupinfo=startupinfo
+            capture_output=True, text=True, encoding="utf-8",
+            errors="ignore", startupinfo=startupinfo
         )
         if result.returncode == 0:
             time_match = re.search(r"Average = (\d+)ms|time[=<](\d+)ms", result.stdout, re.IGNORECASE)
             if time_match:
                 latency = time_match.group(1) or time_match.group(2)
                 return {"status": "online", "latency_ms": int(latency)}
-            return {"status": "online", "latency_ms": 1} # Fallback
+            return {"status": "online", "latency_ms": 1}
         return {"status": "offline", "latency_ms": None}
     except Exception as e:
         return {"status": "error", "message": str(e), "latency_ms": None}
 
-
-# Keep track of active websocket connections
+# ── WebSocket Manager ─────────────────────────────────────────────────────────
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -220,7 +199,7 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
-        for connection in self.active_connections:
+        for connection in list(self.active_connections):
             try:
                 await connection.send_json(message)
             except Exception:
@@ -233,107 +212,94 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            # Keep connection alive; clients can send messages or we just broadcast
             data = await websocket.receive_text()
-            # If client requests an instant refresh
             if data == "refresh":
                 await websocket.send_json({"type": "status", "message": "Manual refresh triggered"})
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-# Background monitoring loop
-# Scans the network every 30 seconds and broadcasts alerts if new/unknown devices join.
+# ── Background monitor (local mode) ──────────────────────────────────────────
 async def background_network_monitor():
     print("Starting background WiFi & Network Security Monitor task...")
     last_devices = set()
     first_run = True
-    
     while True:
         try:
-            # 1. Get current wifi details
             conn = WiFiScanner.get_current_wifi_connection()
-            # 2. Get network devices
             devices_data = NetworkScanner.get_connected_devices()
-            
             if "devices" in devices_data:
                 current_macs = {d["mac"]: d for d in devices_data["devices"]}
                 whitelist = load_whitelist()
-                
-                # Check for new devices (excluding host)
                 new_macs = set(current_macs.keys()) - last_devices
                 if not first_run and new_macs:
                     for mac in new_macs:
                         dev = current_macs[mac]
                         if not dev["is_host"] and mac not in whitelist:
-                            # Send WebSocket Alert
                             await manager.broadcast({
                                 "type": "alert",
                                 "title": "New Device Detected",
                                 "message": f"An unauthorized device has joined: {dev['ip']} ({dev['vendor']})",
                                 "device": dev
                             })
-                
-                # Broadcast the full list of devices & current connection status
                 blacklist = load_blacklist()
                 await manager.broadcast({
                     "type": "update",
                     "wifi": conn,
                     "devices": [
-                        {
-                            **d,
-                            "is_whitelisted": d["mac"] in whitelist,
-                            "is_blacklisted": d["mac"] in blacklist
-                        } 
+                        {**d,
+                         "is_whitelisted": d["mac"] in whitelist,
+                         "is_blacklisted": d["mac"] in blacklist}
                         for d in devices_data["devices"]
                     ]
                 })
-                
                 last_devices = set(current_macs.keys())
                 first_run = False
-                
         except Exception as e:
             print(f"Error in background monitor: {e}")
-            
-        await asyncio.sleep(20) # Scan every 20 seconds
+        await asyncio.sleep(20)
 
+# ── Pydantic models for agent reports ────────────────────────────────────────
 class WiFiDetails(BaseModel):
     status: str
     interface_name: str
-    description: str
-    mac_address: str
-    ssid: str
-    bssid: str
-    band: str
-    channel: str
-    radio_type: str
-    authentication: str
-    cipher: str
-    receive_rate: str
-    transmit_rate: str
-    signal: int
+    description: str = ""
+    mac_address: str = ""
+    ssid: str = ""
+    bssid: str = ""
+    band: str = ""
+    channel: str = ""
+    radio_type: str = ""
+    authentication: str = ""
+    cipher: str = ""
+    receive_rate: str = ""
+    transmit_rate: str = ""
+    signal: int = 0
 
 class DeviceDetails(BaseModel):
     ip: str
     mac: str
-    vendor: str
-    is_host: bool
+    vendor: str = ""
+    hostname: str = ""
+    is_host: bool = False
     latency_ms: Optional[Any] = "ERR"
 
 class NearbyNetwork(BaseModel):
-    ssid: str
-    authentication: str
-    encryption: str
-    signal: int
-    channel: str
-    bssid: str
-    radio_type: str
+    ssid: str = ""
+    authentication: str = ""
+    encryption: str = ""
+    signal: int = 0
+    channel: str = ""
+    bssid: str = ""
+    radio_type: str = ""
+    band: str = ""
 
 class AgentReport(BaseModel):
     agent_id: str
     wifi: WiFiDetails
-    devices: List[DeviceDetails]
+    devices: List[DeviceDetails] = []
     wifi_scan: Optional[List[NearbyNetwork]] = []
 
+# ── Legacy file-based storage (backwards compat) ──────────────────────────────
 REPORTS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "agent_reports.json"))
 
 def load_reports():
@@ -352,136 +318,91 @@ def save_reports(reports):
     except Exception as e:
         print(f"Error saving reports: {e}")
 
+# ── Agent Report endpoint (main cloud receiver) ───────────────────────────────
 @app.post("/api/agent/report")
-def receive_agent_report(payload: AgentReport):
+async def receive_agent_report(payload: AgentReport):
+    aid = payload.agent_id.upper()
     wifi = payload.wifi.dict()
     auth_upper = wifi["authentication"].upper()
-    
-    password_protected = True
-    security_level = "Unknown"
-    encryption_strength = "Unknown"
-    security_details = "Password Protected"
 
+    # Enrich wifi dict with human-readable security labels
     if "OPEN" in auth_upper or "NONE" in auth_upper or auth_upper == "":
-        password_protected = False
-        security_level = "Insecure / Public"
-        encryption_strength = "None (Vulnerable)"
-        security_details = "Open (Unencrypted)"
+        wifi.update(password_protected=False, security_level="Insecure / Public",
+                    encryption_strength="None (Vulnerable)", security_details="Open (Unencrypted)")
     elif "WEP" in auth_upper:
-        security_level = "Weak / Legacy"
-        encryption_strength = "WEP (Vulnerable to exploits)"
-        security_details = "Password Protected (WEP)"
+        wifi.update(password_protected=True, security_level="Weak / Legacy",
+                    encryption_strength="WEP (Vulnerable)", security_details="Password Protected (WEP)")
     elif "WPA3" in auth_upper:
-        security_level = "Strong / Modern"
-        encryption_strength = "High (AES-GCMP/CCMP)"
-        security_details = "Password Protected (WPA3)"
+        wifi.update(password_protected=True, security_level="Strong / Modern",
+                    encryption_strength="High (AES-GCMP/CCMP)", security_details="Password Protected (WPA3)")
     elif "WPA2" in auth_upper:
-        security_level = "Standard / Secure"
-        encryption_strength = "Medium-High (AES-CCMP)"
-        security_details = "Password Protected (WPA2)"
+        wifi.update(password_protected=True, security_level="Standard / Secure",
+                    encryption_strength="Medium-High (AES-CCMP)", security_details="Password Protected (WPA2)")
     elif "WPA" in auth_upper:
-        security_level = "Legacy / Deprecated"
-        encryption_strength = "Medium-Low (TKIP)"
-        security_details = "Password Protected (WPA)"
-        
-    wifi["password_protected"] = password_protected
-    wifi["security_level"] = security_level
-    wifi["encryption_strength"] = encryption_strength
-    wifi["security_details"] = security_details
-    
-    # Calculate simple security score
-    score = 100
-    if not password_protected:
-        score -= 40
-    elif "WEP" in auth_upper or "WPA1" in auth_upper:
-        score -= 25
-    elif "WPA2" in auth_upper:
-        score -= 5
-        
-    # Check if there are any other devices in the report (non-whitelisted nodes)
+        wifi.update(password_protected=True, security_level="Legacy / Deprecated",
+                    encryption_strength="Medium-Low (TKIP)", security_details="Password Protected (WPA)")
+    else:
+        wifi.update(password_protected=False, security_level="Unknown",
+                    encryption_strength="Unknown", security_details="Unknown")
+
+    # Vendor lookup for unknown devices
     whitelist = load_whitelist()
     blacklist = load_blacklist()
-    
     processed_devices = []
-    blacklisted_count = 0
-    unwhitelisted_count = 0
-    
     for d in payload.devices:
         dev_mac = d.mac.upper()
-        is_whitelisted = dev_mac in whitelist
-        is_blacklisted = dev_mac in blacklist
-        
-        # OUI Vendor Lookup fallback on cloud if unknown
         vendor = d.vendor
-        if vendor == "Network Node" or vendor == "Unknown Device" or not vendor:
+        if not vendor or vendor in ("Network Node", "Unknown Device"):
             try:
-                from services.network_scanner import NetworkScanner
                 vendor = NetworkScanner.get_vendor_from_oui(dev_mac)
             except Exception:
                 pass
-            
         processed_devices.append({
-            "ip": d.ip,
-            "mac": dev_mac,
-            "vendor": vendor,
-            "is_host": d.is_host,
-            "latency_ms": d.latency_ms,
-            "is_whitelisted": is_whitelisted,
-            "is_blacklisted": is_blacklisted
+            "ip": d.ip, "mac": dev_mac, "vendor": vendor or "Unknown",
+            "hostname": d.hostname or "",
+            "is_host": d.is_host, "latency_ms": d.latency_ms,
+            "is_whitelisted": dev_mac in whitelist,
+            "is_blacklisted": dev_mac in blacklist
         })
-        
-        if not d.is_host:
-            if is_blacklisted:
-                blacklisted_count += 1
-            elif not is_whitelisted:
-                unwhitelisted_count += 1
-                
-    if blacklisted_count > 0:
-        score -= (30 * blacklisted_count)
-    if unwhitelisted_count > 0:
-        score -= min(10 * unwhitelisted_count, 30)
-            
-    # Cap score
-    score = max(0, min(100, score))
-    
-    # Compile alerts
-    alerts = []
-    if blacklisted_count > 0:
-        alerts.append({
-            "category": "Blacklisted Node Active",
-            "severity": "critical",
-            "message": f"DETECTED {blacklisted_count} BLACKLISTED INTRUDER(S) ACTIVE ON YOUR WIFI! Eject these nodes immediately to protect subnet integrity."
-        })
-    if unwhitelisted_count > 0:
-        alerts.append({
-            "category": "Intruder Alert",
-            "severity": "high",
-            "message": f"Detected {unwhitelisted_count} unauthorized device(s) on your subnet. Please review the network devices and approve or block them."
-        })
-    if not password_protected:
-        alerts.append({
-            "category": "Unsecured WiFi",
-            "severity": "high",
-            "message": "Your Wi-Fi is open and does not require a password! Anyone can scan or sniff your traffic."
-        })
-    elif "WEP" in auth_upper:
-        alerts.append({
-            "category": "Insecure Security Protocol",
-            "severity": "high",
-            "message": "Your Wi-Fi is protected by WEP which can be cracked in minutes. Upgrade to WPA2 or WPA3."
-        })
-        
-    # Store report
+
+    wifi_scan_list = [n.dict() for n in (payload.wifi_scan or [])]
+
+    # ── Run threat analysis ───────────────────────────────────────────────────
+    scan_count = analysis.get_scan_count(aid)
+    score, alerts = analysis.run_analysis(
+        aid, wifi, processed_devices, wifi_scan_list, scan_count
+    )
+
+    # ── Persist to SQLite ─────────────────────────────────────────────────────
+    scan_id = db.insert_scan(aid, wifi, score)
+    db.insert_aps(scan_id, aid, wifi_scan_list)
+    db.insert_devices(scan_id, aid, processed_devices)
+
+    # ── Persist to legacy JSON (backwards compat with /api/agent/report/{id}) ─
     reports = load_reports()
-    reports[payload.agent_id.upper()] = {
+    reports[aid] = {
         "wifi": wifi,
         "devices": processed_devices,
-        "wifi_scan": [n.dict() for n in payload.wifi_scan] if payload.wifi_scan else [],
+        "wifi_scan": wifi_scan_list,
         "security_score": score,
-        "alerts": alerts
+        "alerts": alerts,
+        "score_history": db.get_score_history(aid, 20)
     }
     save_reports(reports)
-    return {"status": "success"}
+
+    # ── Push to all connected WebSocket clients ───────────────────────────────
+    await manager.broadcast({
+        "type": "agent_update",
+        "agent_id": aid,
+        "wifi": wifi,
+        "devices": processed_devices,
+        "wifi_scan": wifi_scan_list,
+        "security_score": score,
+        "alerts": alerts,
+        "score_history": db.get_score_history(aid, 20)
+    })
+
+    return {"status": "success", "score": score, "alerts_raised": len(alerts)}
 
 @app.get("/api/agent/report/{agent_id}")
 def get_agent_report(agent_id: str):
@@ -489,21 +410,39 @@ def get_agent_report(agent_id: str):
     reports = load_reports()
     if aid not in reports:
         raise HTTPException(status_code=404, detail="No scan report found for Agent ID: " + agent_id)
-    return reports[aid]
+    report = reports[aid]
+    # Enrich with persistent alerts from DB
+    report["persistent_alerts"] = db.get_alerts(aid, limit=50)
+    report["score_history"] = db.get_score_history(aid, 20)
+    return report
 
 @app.get("/api/agent/list")
 def list_active_agents():
     reports = load_reports()
     return list(reports.keys())
 
+# ── Alert management endpoints ────────────────────────────────────────────────
+@app.get("/api/alerts/{agent_id}")
+def get_agent_alerts(agent_id: str, limit: int = 50):
+    return db.get_alerts(agent_id.upper(), limit)
 
+@app.post("/api/alerts/{alert_id}/dismiss")
+def dismiss_alert(alert_id: int):
+    db.dismiss_alert(alert_id)
+    return {"status": "dismissed"}
+
+@app.get("/api/score-history/{agent_id}")
+def get_score_history(agent_id: str):
+    return db.get_score_history(agent_id.upper(), 30)
+
+# ── Startup ───────────────────────────────────────────────────────────────────
 @app.on_event("startup")
 def startup_event():
-    # Start background task
+    db.init_db()
+    print("SQLite database initialized.")
     asyncio.create_task(background_network_monitor())
 
-# Serve static frontend files
-# This must be mounted AFTER API endpoints so that APIs take precedence
+# ── Static frontend ───────────────────────────────────────────────────────────
 if os.path.exists(FRONTEND_DIR):
     app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 

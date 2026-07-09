@@ -1,1373 +1,894 @@
-// WiFi Monitor Application Controller - Vanilla Javascript Engine
+/* ══════════════════════════════════════════════════════════════════════════
+   WiFi Sentinel – app.js  (v30)
+   All-in-one dashboard JS: agent polling, WebSocket, charts, tabs, toasts
+   ══════════════════════════════════════════════════════════════════════════ */
 
-document.addEventListener("DOMContentLoaded", () => {
-    // State management
-    function safeCreateIcons(options) {
-        if (typeof lucide !== "undefined" && lucide && typeof lucide.createIcons === "function") {
-            try {
-                lucide.createIcons(options);
-            } catch (e) {
-                console.error("Lucide creation error:", e);
-            }
-        }
+'use strict';
+
+// ── Detect base URL ──────────────────────────────────────────────────────────
+const BASE_URL = (() => {
+    const h = location.hostname;
+    if (h === 'localhost' || h === '127.0.0.1') return `http://${h}:8000`;
+    return 'https://wifi-monitor-x7jk.onrender.com';
+})();
+
+const WS_URL = BASE_URL.replace(/^http/, 'ws') + '/ws/monitor';
+
+// ── Global state ─────────────────────────────────────────────────────────────
+let activeAgentId    = localStorage.getItem('activeAgent') || null;
+let agentPollTimer   = null;
+let currentDevices   = [];
+let selectedDevice   = null;
+let whitelist        = [];
+let blacklist        = [];
+let scoreHistChart   = null;
+let channelChart     = null;
+let currentAlerts    = [];
+let ws               = null;
+let wsReconnectTimer = null;
+
+// ── DOM shortcuts ─────────────────────────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const $$ = sel => document.querySelectorAll(sel);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+    lucide.createIcons();
+    setupTabs();
+    setupAgentPanel();
+    setupButtons();
+    setupDeviceInspector();
+    setupThreatFilters();
+    connectWebSocket();
+    loadWhitelistBlacklist();
+    fetchOnlineAgents();
+    fetchPublicIP();
+
+    // Auto-restore previous agent session
+    if (activeAgentId) {
+        setTimeout(() => activateAgent(activeAgentId), 600);
     }
 
-    let state = {
-        activeTab: "dashboard",
-        wifiConnection: {},
-        scanResults: [],
-        devices: [],
-        whitelist: [],
-        blacklist: [],
-        auditData: {},
-        channelChart: null,
-        wsConn: null,
-        selectedThreatMac: ""
-    };
-
-    let apiHost = "";
-    const localStatusBanner = document.getElementById("local-status-banner");
-
-    async function detectLocalServer() {
-        if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-            apiHost = "";
-            if (localStatusBanner) localStatusBanner.classList.add("hidden");
-            return true;
-        }
-
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 1200);
-            
-            const res = await fetch("http://127.0.0.1:8000/api/wifi/connection", {
-                signal: controller.signal,
-                headers: { "Accept": "application/json" }
-            });
-            clearTimeout(timeoutId);
-            
-            if (res.ok) {
-                const data = await res.json();
-                if (data && !data.error) {
-                    apiHost = "http://127.0.0.1:8000";
-                    if (localStatusBanner) localStatusBanner.classList.add("hidden");
-                    logToConsole("Local scan agent auto-detected at 127.0.0.1:8000! Connecting...", "system");
-                    return true;
-                }
-            }
-        } catch (e) {
-            // Not running
-        }
-
-        apiHost = "";
-        if (localStatusBanner) localStatusBanner.classList.remove("hidden");
-        logToConsole("Local scan agent is offline. Visualizing cloud mock mode.", "system");
-        return false;
-    }
-
-    // DOM Elements
-    const navItems = document.querySelectorAll(".nav-item");
-    const tabPanels = document.querySelectorAll(".tab-panel");
-    const currentTabTitle = document.getElementById("current-tab-title");
-    const currentTabSubtitle = document.getElementById("current-tab-subtitle");
-    
-    const wsStatusText = document.getElementById("ws-status-text");
-    const wsStatusDot = document.querySelector(".status-indicator-dot");
-    const headerConnectionBadge = document.getElementById("header-connection-badge");
-    
-    // Buttons
-    const globalRefreshBtn = document.getElementById("global-refresh-btn");
-    const refreshIcon = document.getElementById("refresh-icon");
-    const scanWifiBtn = document.getElementById("scan-wifi-btn");
-    const scanDevicesBtn = document.getElementById("scan-devices-btn");
-    const clearConsoleBtn = document.getElementById("clear-console-btn");
-    
-    // Tab 1: Dashboard Elements
-    const scoreNumber = document.getElementById("score-number");
-    const scoreText = document.getElementById("score-text");
-    const ringProgress = document.getElementById("security-ring-progress");
-    const profileCipher = document.getElementById("profile-cipher");
-    const profileGateway = document.getElementById("profile-gateway");
-    const profileStatus = document.getElementById("profile-status");
-    const profileAdapter = document.getElementById("profile-adapter");
-    const profileMac = document.getElementById("profile-mac");
-    const profileRadio = document.getElementById("profile-radio");
-    const profileAuth = document.getElementById("profile-auth");
-    const profilePassword = document.getElementById("profile-password");
-    const profileLevel = document.getElementById("profile-level");
-    const profileStrength = document.getElementById("profile-strength");
-    const connSsid = document.getElementById("conn-ssid");
-    const connBssid = document.getElementById("conn-bssid");
-    const connSignal = document.getElementById("conn-signal");
-    const connChannelBand = document.getElementById("conn-channel-band");
-    const connRate = document.getElementById("conn-rate");
-    const pubIp = document.getElementById("pub-ip");
-    const pubIsp = document.getElementById("pub-isp");
-    const alertsContainer = document.getElementById("alerts-container");
-    const alertCountBadge = document.getElementById("alert-count-badge");
-    
-    // Agent ID Connection Elements
-    const agentIdInput = document.getElementById("agent-id-input");
-    const agentConnectBtn = document.getElementById("agent-connect-btn");
-    const agentDisconnectBtn = document.getElementById("agent-disconnect-btn");
-    const agentActiveBadge = document.getElementById("agent-active-badge");
-    const agentActiveText = document.getElementById("agent-active-text");
-    const agentInputGroup = document.getElementById("agent-input-group");
-    const onlineAgentsContainer = document.getElementById("online-agents-container");
-    let connectedAgentId = localStorage.getItem("wifi_monitor_agent_id") || "";
-    
-    // Tab 2: WiFi Inspector Elements
-    const wifiScanTbody = document.getElementById("wifi-scan-tbody");
-    
-    // Tab 3: Subnet Devices Elements
-    const devicesTbody = document.getElementById("devices-tbody");
-    const statActiveHosts = document.getElementById("stat-active-hosts");
-    const statWhitelisted = document.getElementById("stat-whitelisted");
-    const statUnauthorized = document.getElementById("stat-unauthorized");
-
-    // Tab: Threat Center Elements
-    const threatDeviceSelect = document.getElementById("threat-device-select");
-    const threatIp = document.getElementById("threat-ip");
-    const threatMac = document.getElementById("threat-mac");
-    const threatVendor = document.getElementById("threat-vendor");
-    const threatStatusBadge = document.getElementById("threat-status-badge");
-    const pingTestBtn = document.getElementById("ping-test-btn");
-    const latencyValue = document.getElementById("latency-value");
-    const latencyStatusText = document.getElementById("latency-status-text");
-    const threatApproveBtn = document.getElementById("threat-approve-btn");
-    const threatBlockBtn = document.getElementById("threat-block-btn");
-    const routerGatewayLink = document.getElementById("router-gateway-link");
-    const routerBlockMacVal = document.getElementById("router-block-mac-val");
-    
-    // Tab 4: Console
-    const consoleStream = document.getElementById("console-stream");
-    const toastArea = document.getElementById("toast-area");
-
-    // Initialize Lucide Icons
-    safeCreateIcons();
-
-    // Tab Switching Logic
-    navItems.forEach(item => {
-        item.addEventListener("click", () => {
-            const targetTab = item.getAttribute("data-tab");
-            switchTab(targetTab);
-        });
-    });
-
-    function switchTab(tabId) {
-        state.activeTab = tabId;
-        
-        // Toggle Sidebar Active
-        navItems.forEach(btn => {
-            if (btn.getAttribute("data-tab") === tabId) {
-                btn.classList.add("active");
-            } else {
-                btn.classList.remove("active");
-            }
-        });
-
-        // Toggle Panels
-        tabPanels.forEach(panel => {
-            if (panel.id === `panel-${tabId}`) {
-                panel.classList.add("active");
-            } else {
-                panel.classList.remove("active");
-            }
-        });
-
-        // Update Titles
-        const titles = {
-            "dashboard": { title: "Security Dashboard", subtitle: "Real-time WiFi threats and configuration audit" },
-            "wifi-scan": { title: "WiFi Inspector", subtitle: "Spectral scanning and overlapping channel analysis" },
-            "devices": { title: "Subnet Devices", subtitle: "Active local network nodes mapping and whitelisting" },
-            "threat-center": { title: "Threat Center", subtitle: "Active local network nodes risk profile and access control policy" },
-            "logs": { title: "Console Log", subtitle: "Raw telemetry and intrusion alert events" }
-        };
-
-        currentTabTitle.textContent = titles[tabId].title;
-        currentTabSubtitle.textContent = titles[tabId].subtitle;
-        
-        // Refresh specific tab assets
-        if (tabId === "wifi-scan") {
-            // Re-render chart since it requires canvas visibility to scale correctly
-            renderChannelChart();
-        } else if (tabId === "threat-center") {
-            populateThreatSelector();
-        }
-    }
-
-    // Console Logging Utility
-    function logToConsole(message, type = "system") {
-        const time = new Date().toLocaleTimeString();
-        const line = document.createElement("div");
-        line.className = `console-line ${type}-line`;
-        
-        let prefix = "[SYSTEM]";
-        if (type === "event-update") prefix = "[UPDATE]";
-        if (type === "event-alert") prefix = "[ALERT]";
-        
-        line.textContent = `${time} ${prefix} ${message}`;
-        consoleStream.appendChild(line);
-        consoleStream.scrollTop = consoleStream.scrollHeight;
-    }
-
-    // Toast Alert system
-    function triggerToast(title, message, dev = null) {
-        const toast = document.createElement("div");
-        toast.className = "toast";
-        
-        // Sound alert
-        try {
-            const context = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = context.createOscillator();
-            const gain = context.createGain();
-            osc.connect(gain);
-            gain.connect(context.destination);
-            
-            osc.type = "sine";
-            osc.frequency.setValueAtTime(880, context.currentTime); // A5 note
-            gain.gain.setValueAtTime(0.15, context.currentTime);
-            
-            osc.start();
-            osc.stop(context.currentTime + 0.12);
-        } catch (e) {
-            // Audio context blocked or not supported
-        }
-
-        toast.innerHTML = `
-            <i data-lucide="shield-alert"></i>
-            <div class="toast-msg">
-                <div class="toast-title">${title}</div>
-                <div class="toast-text">${message}</div>
-            </div>
-            <button class="toast-close"><i data-lucide="x" style="width:14px;height:14px;"></i></button>
-        `;
-        
-        toastArea.appendChild(toast);
-        safeCreateIcons({attrs: {class: 'toast-close-btn'}});
-
-        // Bind Close Click
-        toast.querySelector(".toast-close").addEventListener("click", () => {
-            toast.style.animation = "fadeOut 0.3s forwards";
-            setTimeout(() => toast.remove(), 300);
-        });
-
-        // Auto remove after 6s
-        setTimeout(() => {
-            if (toast.parentNode) {
-                toast.style.animation = "fadeOut 0.3s forwards";
-                setTimeout(() => toast.remove(), 300);
-            }
-        }, 6000);
-    }
-
-    // Connect WebSocket
-    function connectWS() {
-        let wsUrl;
-        if (apiHost) {
-            const wsProtocol = apiHost.startsWith("https") ? "wss:" : "ws:";
-            const wsDomain = apiHost.replace(/^https?:\/\//, "");
-            wsUrl = `${wsProtocol}//${wsDomain}/ws/monitor`;
-        } else {
-            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-            const host = window.location.host || "localhost:8000";
-            wsUrl = `${protocol}//${host}/ws/monitor`;
-        }
-
-        logToConsole("Initializing WebSocket connection to " + wsUrl);
-        state.wsConn = new WebSocket(wsUrl);
-
-        state.wsConn.onopen = () => {
-            logToConsole("WebSocket link established.", "system");
-            wsStatusText.textContent = "Live Telemetry Feed Online";
-            wsStatusDot.classList.add("online");
-            wsStatusDot.classList.remove("offline");
-        };
-
-        state.wsConn.onclose = () => {
-            logToConsole("WebSocket link disconnected. Reconnecting in 5s...", "system");
-            wsStatusText.textContent = "Offline (Reconnecting)";
-            wsStatusDot.classList.add("offline");
-            wsStatusDot.classList.remove("online");
-            setTimeout(connectWS, 5000);
-        };
-
-        state.wsConn.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                
-                if (data.type === "alert") {
-                    logToConsole(data.message, "event-alert");
-                    triggerToast(data.title, data.message, data.device);
-                    // Refresh devices list
-                    fetchDevices();
-                    fetchAudit();
-                } else if (data.type === "update") {
-                    logToConsole("Periodic background data payload received.", "event-update");
-                    
-                    // Update active WiFi stats
-                    if (data.wifi && data.wifi.status === "connected") {
-                        updateWifiUI(data.wifi);
-                    }
-                    
-                    // Update Devices
-                    if (data.devices) {
-                        state.devices = data.devices;
-                        renderDevicesTable();
-                    }
-                }
-            } catch (err) {
-                console.error("Error processing WS packet: ", err);
-            }
-        };
-    }
-
-    // Fetch active WiFi connection
-    async function fetchWifiConnection() {
-        try {
-            const res = await fetch(apiHost + "/api/wifi/connection");
-            const data = await res.json();
-            if (!res.ok || data.detail || data.error) {
-                throw new Error(data.detail || data.error || `Server error (${res.status})`);
-            }
-            state.wifiConnection = data;
-            updateWifiUI(data);
-        } catch (e) {
-            logToConsole("Error fetching WiFi interface: " + e.message, "system");
-            updateWifiUI({ status: "disconnected" });
-        }
-    }
-
-    function updateWifiUI(data) {
-        if (data.status === "connected") {
-            headerConnectionBadge.className = "network-badge connected";
-            headerConnectionBadge.innerHTML = `<i data-lucide="wifi"></i> <span>Connected: ${data.ssid}</span>`;
-            
-            connSsid.textContent = data.ssid;
-            connBssid.textContent = data.bssid;
-            connSignal.textContent = `${data.signal}%`;
-            connChannelBand.textContent = `Ch ${data.channel} / ${data.band}`;
-            connRate.textContent = `↓ ${data.receive_rate} Mbps / ↑ ${data.transmit_rate} Mbps`;
-            
-            if (profileStatus) {
-                profileStatus.textContent = "CONNECTED";
-                profileStatus.className = "val text-glow-green";
-            }
-            if (profileAdapter) profileAdapter.textContent = data.description || data.interface_name || "--";
-            if (profileMac) profileMac.textContent = data.mac_address || "--";
-            if (profileRadio) profileRadio.textContent = data.radio_type || "--";
-            if (profileAuth) profileAuth.textContent = data.authentication || "--";
-            if (profileCipher) profileCipher.textContent = data.cipher || "--";
-            
-            if (profilePassword) {
-                profilePassword.textContent = data.password_protected ? "Yes (Secured)" : "No (Open / Vulnerable)";
-                profilePassword.className = data.password_protected ? "val text-glow-green" : "val text-glow-red";
-            }
-            if (profileLevel) {
-                profileLevel.textContent = data.security_level || "--";
-                if (data.security_level && data.security_level.includes("Strong")) {
-                    profileLevel.className = "val text-glow-green";
-                } else if (data.security_level && data.security_level.includes("Standard")) {
-                    profileLevel.className = "val text-glow-cyan";
-                } else {
-                    profileLevel.className = "val text-glow-yellow";
-                }
-            }
-            if (profileStrength) {
-                profileStrength.textContent = data.encryption_strength || "--";
-                profileStrength.className = data.password_protected ? "val text-glow-green" : "val text-glow-red";
-            }
-        } else {
-            headerConnectionBadge.className = "network-badge disconnected";
-            headerConnectionBadge.innerHTML = `<i data-lucide="wifi-off"></i> <span>Wlan Disconnected</span>`;
-            
-            connSsid.textContent = "Disconnected";
-            connBssid.textContent = "--";
-            connSignal.textContent = "0%";
-            connChannelBand.textContent = "--";
-            connRate.textContent = "--";
-            
-            if (profileStatus) {
-                profileStatus.textContent = "DISCONNECTED";
-                profileStatus.className = "val text-glow-red";
-            }
-            if (profileAdapter) profileAdapter.textContent = "--";
-            if (profileMac) profileMac.textContent = "--";
-            if (profileRadio) profileRadio.textContent = "--";
-            if (profileAuth) profileAuth.textContent = "--";
-            if (profileCipher) profileCipher.textContent = "None";
-            
-            if (profilePassword) {
-                profilePassword.textContent = "--";
-                profilePassword.className = "val";
-            }
-            if (profileLevel) {
-                profileLevel.textContent = "--";
-                profileLevel.className = "val";
-            }
-            if (profileStrength) {
-                profileStrength.textContent = "--";
-                profileStrength.className = "val";
-            }
-        }
-        safeCreateIcons();
-    }
-       // Fetch Whitelist
-    async function fetchWhitelist() {
-        try {
-            const res = await fetch(apiHost + "/api/whitelist");
-            state.whitelist = await res.json();
-        } catch (e) {
-            console.error("Error fetching whitelist", e);
-        }
-    }
-
-    // Fetch Blacklist
-    async function fetchBlacklist() {
-        try {
-            const res = await fetch(apiHost + "/api/blacklist");
-            state.blacklist = await res.json();
-        } catch (e) {
-            console.error("Error fetching blacklist", e);
-        }
-    }
-
-    // Set Device status policies
-    async function setDeviceStatus(mac, status) {
-        mac = mac.toUpperCase();
-        try {
-            if (status === "approved") {
-                let updatedList = [...state.whitelist];
-                if (!updatedList.includes(mac)) updatedList.push(mac);
-                logToConsole(`Approving and Whitelisting MAC: ${mac}`);
-                
-                const res = await fetch(apiHost + "/api/whitelist", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ macs: updatedList })
-                });
-                const data = await res.json();
-                state.whitelist = data.whitelist;
-                // Update local blacklist state
-                state.blacklist = state.blacklist.filter(m => m !== mac);
-            } 
-            else if (status === "blocked") {
-                let updatedList = [...state.blacklist];
-                if (!updatedList.includes(mac)) updatedList.push(mac);
-                logToConsole(`Banning and Blacklisting MAC: ${mac}`, "event-alert");
-                
-                const res = await fetch(apiHost + "/api/blacklist", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ macs: updatedList })
-                });
-                const data = await res.json();
-                state.blacklist = data.blacklist;
-                // Update local whitelist state
-                state.whitelist = state.whitelist.filter(m => m !== mac);
-            }
-            else { // reset to unknown
-                logToConsole(`Resetting policy for MAC: ${mac}`);
-                const updatedWhite = state.whitelist.filter(m => m !== mac);
-                const updatedBlack = state.blacklist.filter(m => m !== mac);
-                
-                await fetch(apiHost + "/api/whitelist", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ macs: updatedWhite })
-                });
-                await fetch(apiHost + "/api/blacklist", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ macs: updatedBlack })
-                });
-                
-                state.whitelist = updatedWhite;
-                state.blacklist = updatedBlack;
-            }
-            
-            // Re-fetch Devices and Audit to update UI and score
-            await fetchDevices();
-            await fetchAudit();
-            
-            // If in Threat Center, refresh the selected device card
-            if (state.activeTab === "threat-center") {
-                updateThreatDetailsCard(state.selectedThreatMac);
-            }
-        } catch (e) {
-            logToConsole("Error updating device policy: " + e.message, "system");
-          }
-    }
-
-    // Fetch Subnet Devices
-    async function fetchDevices() {
-        if (connectedAgentId) {
-            await fetchAgentReport();
-            return;
-        }
-        try {
-            const res = await fetch(apiHost + "/api/network/devices");
-            const data = await res.json();
-            
-            if (!res.ok || data.error || data.detail) {
-                const errMsg = data.error || data.detail || `Server error (${res.status})`;
-                devicesTbody.innerHTML = `<tr><td colspan="6" class="table-loading text-glow-red">${errMsg}</td></tr>`;
-                return;
-            }
-
-            state.devices = data.devices || [];
-            if (data.wifi_ip && typeof data.wifi_ip === "string") {
-                profileGateway.textContent = data.wifi_ip.substring(0, data.wifi_ip.lastIndexOf('.')) + ".1";
-            } else {
-                profileGateway.textContent = "--";
-            }
-            renderDevicesTable();
-        } catch (e) {
-            devicesTbody.innerHTML = `<tr><td colspan="6" class="table-loading text-glow-red">Failed to map network: ${e.message}</td></tr>`;
-        }
-    }
-
-    function renderDevicesTable() {
-        if (!state.devices || state.devices.length === 0) {
-            devicesTbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted);">No devices located on subnet.</td></tr>';
-            return;
-        }
-
-        let html = "";
-        let activeCount = 0;
-        let whiteCount = 0;
-        let threatCount = 0;
-
-        state.devices.forEach(dev => {
-            activeCount++;
-            const isWhitelisted = state.whitelist.includes(dev.mac);
-            const isBlacklisted = state.blacklist.includes(dev.mac);
-            
-            let statusBadge = "";
-            if (dev.is_host) {
-                statusBadge = '<span class="badge" style="background:rgba(6,182,212,0.15);color:var(--color-cyan);">HOST</span>';
-                whiteCount++;
-            } else if (isWhitelisted) {
-                statusBadge = '<span class="badge" style="background:rgba(16,185,129,0.15);color:var(--color-green);">APPROVED</span>';
-                whiteCount++;
-            } else if (isBlacklisted) {
-                statusBadge = '<span class="badge" style="background:rgba(239,68,68,0.15);color:var(--color-red);box-shadow:var(--glow-red);">BLOCKED</span>';
-                threatCount++;
-            } else {
-                statusBadge = '<span class="badge" style="background:rgba(245,158,11,0.12);color:var(--color-yellow);">UNKNOWN</span>';
-                threatCount++;
-            }
-
-            html += `
-                <tr>
-                    <td>${statusBadge}</td>
-                    <td>${dev.ip}</td>
-                    <td class="font-mono">${dev.mac}</td>
-                    <td>${dev.vendor}</td>
-                    <td>${dev.is_host ? "This Workstation" : "Remote Node"}</td>
-                    <td>
-                        ${dev.is_host ? "--" : `
-                        <div class="controls-cell">
-                            <button class="btn-ctrl btn-approve ${isWhitelisted ? 'approved' : ''}" data-mac="${dev.mac}">
-                                <i data-lucide="${isWhitelisted ? 'check-circle' : 'circle'}"></i> Approve
-                            </button>
-                            <button class="btn-ctrl btn-block ${isBlacklisted ? 'blocked' : ''}" data-mac="${dev.mac}">
-                                <i data-lucide="${isBlacklisted ? 'slash' : 'circle'}"></i> Block
-                            </button>
-                        </div>
-                        `}
-                    </td>
-                </tr>
-            `;
-        });
-
-        devicesTbody.innerHTML = html;
-        safeCreateIcons();
-        
-        // Update stats widgets
-        statActiveHosts.textContent = activeCount;
-        statWhitelisted.textContent = whiteCount;
-        statUnauthorized.textContent = threatCount;
-        
-        // Bind events to Approve buttons
-        devicesTbody.querySelectorAll(".btn-approve").forEach(btn => {
-            btn.addEventListener("click", (e) => {
-                const button = e.target.closest("button");
-                const mac = button.getAttribute("data-mac");
-                const isApproved = button.classList.contains("approved");
-                setDeviceStatus(mac, isApproved ? "unknown" : "approved");
-            });
-        });
-
-        // Bind events to Block buttons
-        devicesTbody.querySelectorAll(".btn-block").forEach(btn => {
-            btn.addEventListener("click", (e) => {
-                const button = e.target.closest("button");
-                const mac = button.getAttribute("data-mac");
-                const isBlocked = button.classList.contains("blocked");
-                setDeviceStatus(mac, isBlocked ? "unknown" : "blocked");
-            });
-        });
-    }
-
-    // Fetch and compute WiFi scan
-    async function fetchWifiScan() {
-        if (connectedAgentId) {
-            // Show scan spinner while waiting for agent's fresh scan
-            wifiScanTbody.innerHTML = '<tr><td colspan="6" class="table-loading"><i data-lucide="loader" class="icon-spin"></i> Requesting fresh airspace scan from agent...</td></tr>';
-            safeCreateIcons();
-            // Wait a beat so the agent's next loop picks up the fresh scan
-            await new Promise(r => setTimeout(r, 6000));
-            await fetchAgentReport();
-            return;
-        }
-        wifiScanTbody.innerHTML = '<tr><td colspan="6" class="table-loading"><i data-lucide="loader" class="icon-spin"></i> Inspecting WiFi frequencies...</td></tr>';
-        safeCreateIcons();
-
-        try {
-            const res = await fetch(apiHost + "/api/wifi/scan");
-            const data = await res.json();
-            if (!res.ok || data.detail || data.error) {
-                throw new Error(data.detail || data.error || `Server error (${res.status})`);
-            }
-            state.scanResults = Array.isArray(data) ? data : [];
-            renderScanTable();
-            renderChannelChart();
-        } catch (e) {
-            wifiScanTbody.innerHTML = `<tr><td colspan="6" class="table-loading text-glow-red">Scan failed: ${e.message}</td></tr>`;
-        }
-    }
-
-    function renderScanTable() {
-        if (!state.scanResults || state.scanResults.length === 0) {
-            wifiScanTbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted);">No wireless networks found.</td></tr>';
-            return;
-        }
-
-        let html = "";
-        state.scanResults.forEach(net => {
-            const bssidDetails = net.bssids[0] || {};
-            
-            // Format security badges
-            let secColor = "var(--color-green)";
-            if (net.authentication.includes("Open") || net.authentication.includes("None")) {
-                secColor = "var(--color-red)";
-            } else if (net.authentication.includes("WPA2")) {
-                secColor = "var(--color-yellow)";
-            }
-
-            html += `
-                <tr>
-                    <td><strong>${net.ssid}</strong></td>
-                    <td class="font-mono">${bssidDetails.bssid || "--"}</td>
-                    <td>Channel ${bssidDetails.channel || "--"}</td>
-                    <td>${bssidDetails.band || "--"}</td>
-                    <td><span class="badge" style="border: 1px solid ${secColor}; color: ${secColor};">${net.authentication}</span></td>
-                    <td>
-                        <div style="display:flex;align-items:center;gap:0.5rem;">
-                            <span class="text-glow-cyan" style="font-weight:600;width:35px;">${bssidDetails.signal}%</span>
-                            <div style="width:60px;height:4px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;">
-                                <div style="width:${bssidDetails.signal}%;height:100%;background:var(--color-cyan);box-shadow:var(--glow-cyan);"></div>
-                            </div>
-                        </div>
-                    </td>
-                </tr>
-            `;
-        });
-
-        wifiScanTbody.innerHTML = html;
-    }
-
-    // Render Spectral Overlapping WiFi Chart (Chart.js)
-    function renderChannelChart() {
-        const canvas = document.getElementById("wifi-channel-chart");
-        if (!canvas) return;
-        
-        // If chart exists, destroy it first
-        if (state.channelChart) {
-            state.channelChart.destroy();
-        }
-
-        // Separate networks into 2.4GHz vs 5GHz
-        const nets24 = [];
-        const nets5 = [];
-
-        state.scanResults.forEach(net => {
-            net.bssids.forEach(bssid => {
-                const ch = parseInt(bssid.channel) || 0;
-                const sig = bssid.signal || 0;
-                
-                if (bssid.band && bssid.band.includes("2.4")) {
-                    nets24.push({ ssid: net.ssid, channel: ch, signal: sig });
-                } else {
-                    nets5.push({ ssid: net.ssid, channel: ch, signal: sig });
-                }
-            });
-        });
-
-        // Determine if we show 2.4GHz or 5GHz on the chart (default 2.4GHz since it overlaps more, or show both)
-        const use5GHz = (nets24.length === 0 && nets5.length > 0);
-        let channelsRange = [];
-        let datasets = [];
-
-        if (!use5GHz) {
-            channelsRange = Array.from({ length: 14 }, (_, i) => i + 1);
-            datasets = nets24.map((net, idx) => {
-                const centerCh = net.channel;
-                const maxSignal = net.signal;
-                const data = channelsRange.map(ch => {
-                    const dist = Math.abs(ch - centerCh);
-                    if (dist === 0) return maxSignal;
-                    if (dist === 1) return maxSignal * 0.7;
-                    if (dist === 2) return maxSignal * 0.35;
-                    return 0;
-                });
-
-                const colors = [
-                    "rgba(6, 182, 212, 0.45)",  // Cyan
-                    "rgba(16, 185, 129, 0.45)", // Green
-                    "rgba(245, 158, 11, 0.45)",  // Yellow
-                    "rgba(244, 63, 94, 0.45)",   // Red
-                    "rgba(139, 92, 246, 0.45)"   // Purple
-                ];
-                const borderColors = [
-                    "#06b6d4",
-                    "#10b981",
-                    "#f59e0b",
-                    "#f43f5e",
-                    "#8b5cf6"
-                ];
-                const cIdx = idx % colors.length;
-
-                return {
-                    label: net.ssid,
-                    data: data,
-                    borderColor: borderColors[cIdx],
-                    backgroundColor: colors[cIdx],
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 0
-                };
-            });
-        } else {
-            // Build dynamic 5GHz channels range centered around detected channels
-            const channels = nets5.map(n => n.channel);
-            const minCh = Math.max(36, Math.min(...channels) - 4);
-            const maxCh = Math.min(165, Math.max(...channels) + 4);
-            
-            channelsRange = [];
-            for (let c = minCh; c <= maxCh; c++) {
-                channelsRange.push(c);
-            }
-
-            datasets = nets5.map((net, idx) => {
-                const centerCh = net.channel;
-                const maxSignal = net.signal;
-                const data = channelsRange.map(ch => {
-                    const dist = Math.abs(ch - centerCh);
-                    if (dist === 0) return maxSignal;
-                    if (dist === 1) return maxSignal * 0.7;
-                    if (dist === 2) return maxSignal * 0.35;
-                    return 0;
-                });
-
-                const colors = [
-                    "rgba(6, 182, 212, 0.45)",
-                    "rgba(16, 185, 129, 0.45)",
-                    "rgba(245, 158, 11, 0.45)",
-                    "rgba(244, 63, 94, 0.45)",
-                    "rgba(139, 92, 246, 0.45)"
-                ];
-                const borderColors = [
-                    "#06b6d4",
-                    "#10b981",
-                    "#f59e0b",
-                    "#f43f5e",
-                    "#8b5cf6"
-                ];
-                const cIdx = idx % colors.length;
-
-                return {
-                    label: net.ssid,
-                    data: data,
-                    borderColor: borderColors[cIdx],
-                    backgroundColor: colors[cIdx],
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 0
-                };
-            });
-        }
-
-        if (state.activeTab !== "wifi-scan") return; // Avoid chart sizing errors on hidden elements!
-
-        try {
-            state.channelChart = new Chart(canvas, {
-                type: 'line',
-                data: {
-                    labels: channelsRange.map(ch => `Ch ${ch}`),
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: {
-                                color: '#94a3b8',
-                                font: { family: 'Outfit', size: 11 }
-                            }
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return `SSID: ${context.dataset.label} (Strength: ${context.raw}%)`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            grid: { color: 'rgba(255, 255, 255, 0.03)' },
-                            ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
-                        },
-                        y: {
-                            min: 0,
-                            max: 100,
-                            grid: { color: 'rgba(255, 255, 255, 0.03)' },
-                            ticks: { 
-                                color: '#94a3b8', 
-                                font: { family: 'Outfit' },
-                                callback: function(val) { return val + '%'; }
-                            }
-                        }
-                    }
-                }
-            });
-        } catch (e) {
-            console.error("Failed to render Chart.js spectrum: ", e);
-        }
-    }
-
-    // Render alerts UI block
-    function renderAlerts(alerts) {
-        let alertsHtml = "";
-        let alertCount = alerts.length;
-        
-        if (alertCount === 0) {
-            alertsHtml = `
-                <div class="empty-state">
-                    <i data-lucide="shield-check" class="text-success"></i>
-                    <p>No active threats or vulnerabilities found on this network.</p>
-                </div>
-            `;
-        } else {
-            alerts.forEach(alert => {
-                let severityClass = `severity-${alert.severity}`;
-                let iconName = "info";
-                
-                if (alert.severity === "critical" || alert.severity === "high") {
-                    iconName = "shield-alert";
-                } else if (alert.severity === "medium" || alert.severity === "low") {
-                    iconName = "alert-triangle";
-                }
-
-                alertsHtml += `
-                    <div class="alert-item ${severityClass}">
-                        <div class="alert-icon ${alert.severity === 'critical' || alert.severity === 'high' ? 'danger' : alert.severity === 'info' ? 'info' : 'warning'}">
-                            <i data-lucide="${iconName}"></i>
-                        </div>
-                        <div class="alert-body">
-                            <h4>${alert.category}</h4>
-                            <p>${alert.message}</p>
-                        </div>
-                    </div>
-                `;
-            });
-        }
-        
-        alertsContainer.innerHTML = alertsHtml;
-        alertCountBadge.textContent = `${alertCount} Alert(s)`;
-        alertCountBadge.className = alertCount > 0 ? "badge text-glow-red" : "badge badge-outline";
-        if (alertCount > 0) {
-            alertCountBadge.style.borderColor = "var(--color-red)";
-        } else {
-            alertCountBadge.style.borderColor = "";
-        }
-        
-        safeCreateIcons();
-    }
-
-    // Run detailed Connection Audit
-    async function fetchAudit() {
-        try {
-            const res = await fetch(apiHost + "/api/security/audit");
-            const data = await res.json();
-            if (!res.ok || data.detail || data.error) {
-                throw new Error(data.detail || data.error || `Server error (${res.status})`);
-            }
-            state.auditData = data;
-            
-            // Render Score Ring
-            updateSecurityScore(data.security_score || 0);
-            
-            // Render exposed ports & DNS
-            const pubInfo = data.public_ip_info || {};
-            pubIp.textContent = pubInfo.public_ip || "Unavailable (Sandboxed)";
-            pubIsp.textContent = pubInfo.org || "Protected Gateway Network";
-            
-            // Render Alerts
-            renderAlerts(data.alerts || []);
-        } catch (e) {
-            logToConsole("Audit fetch failed: " + e.message, "system");
-        }
-    }
-
-    // Fetch unified cloud agent report
-    async function fetchAgentReport() {
-        if (!connectedAgentId) return;
-        
-        try {
-            const res = await fetch(apiHost + `/api/agent/report/${connectedAgentId}`);
-            if (!res.ok) {
-                if (res.status === 404) {
-                    logToConsole(`No scan data received from Agent: ${connectedAgentId}. Keep the script running on that PC!`, "system");
-                    updateWifiUI({ status: "disconnected" });
-                    return;
-                }
-                throw new Error(`Server error (${res.status})`);
-            }
-            
-            const data = await res.json();
-            
-            // 1. Connection properties
-            state.wifiConnection = data.wifi || {};
-            updateWifiUI(state.wifiConnection);
-            
-            if (state.wifiConnection.status === "connected") {
-                profileGateway.textContent = state.wifiConnection.gateway_ip || "--";
-            }
-            
-            // 2. Devices table
-            state.devices = data.devices || [];
-            renderDevicesTable();
-            
-            // 3. WiFi inspector scans (restructure flat model to nested model)
-            const rawScan = data.wifi_scan || [];
-            state.scanResults = rawScan.map(net => {
-                const chanNum = parseInt(net.channel) || 1;
-                const bandStr = chanNum <= 14 ? "2.4 GHz" : "5 GHz";
-                return {
-                    ssid: net.ssid,
-                    authentication: net.authentication,
-                    encryption: net.encryption,
-                    bssids: [
-                        {
-                            bssid: net.bssid,
-                            signal: net.signal,
-                            channel: net.channel,
-                            band: bandStr
-                        }
-                    ]
-                };
-            });
-            renderScanTable();
-            renderChannelChart();
-            
-            // 4. Security Score Ring
-            updateSecurityScore(data.security_score || 0);
-            
-            // 5. Alerts list
-            renderAlerts(data.alerts || []);
-            
-            logToConsole(`Telemetry synchronized for Agent: ${connectedAgentId}.`, "system");
-        } catch (e) {
-            logToConsole(`Agent telemetry fetch failed: ${e.message}`, "system");
-        }
-    }
-
-    function updateSecurityScore(score) {
-        scoreNumber.textContent = score;
-        
-        // Animate stroke-dashoffset of SVG ring (circumference is 2 * pi * r = 2 * 3.1415 * 40 = 251.2)
-        const circumference = 251.2;
-        const offset = circumference - (score / 100) * circumference;
-        ringProgress.style.strokeDashoffset = offset;
-        
-        // Color transition
-        if (score >= 80) {
-            ringProgress.style.stroke = "var(--color-green)";
-            scoreText.textContent = "Secure Network";
-            scoreText.className = "score-label text-glow-green";
-        } else if (score >= 50) {
-            ringProgress.style.stroke = "var(--color-yellow)";
-            scoreText.textContent = "Moderate Risk";
-            scoreText.className = "score-label text-glow-yellow";
-        } else {
-            ringProgress.style.stroke = "var(--color-red)";
-            scoreText.textContent = "Critical Danger";
-            scoreText.className = "score-label text-glow-red";
-        }
-    }
-
-    // Global Manual Audit trigger
-    async function triggerGlobalAudit() {
-        const activeRefreshIcon = document.getElementById("refresh-icon");
-        if (activeRefreshIcon) activeRefreshIcon.classList.add("icon-spin");
-        globalRefreshBtn.disabled = true;
-        
-        if (connectedAgentId) {
-            logToConsole(`Requesting remote scan refresh for agent ${connectedAgentId}...`, "system");
-            try {
-                await fetchAgentReport();
-            } catch (err) {
-                logToConsole("Agent sync failed: " + err.message, "event-alert");
-            } finally {
-                setTimeout(() => {
-                    const activeRefreshIcon = document.getElementById("refresh-icon");
-                    if (activeRefreshIcon) activeRefreshIcon.classList.remove("icon-spin");
-                    globalRefreshBtn.disabled = false;
-                    logToConsole("Agent scan refresh completed.", "system");
-                }, 800);
-            }
-            return;
-        }
-
-        logToConsole("Executing full environment security audit...", "system");
-
-        try {
-            await fetchWhitelist();
-            await fetchBlacklist();
-            await fetchWifiConnection();
-            await fetchWifiScan();
-            await fetchDevices();
-            await fetchAudit();
-        } catch (err) {
-            logToConsole("Audit failed: " + err.message, "event-alert");
-            console.error("Audit error: ", err);
-        } finally {
-            setTimeout(() => {
-                const activeRefreshIcon = document.getElementById("refresh-icon");
-                if (activeRefreshIcon) activeRefreshIcon.classList.remove("icon-spin");
-                globalRefreshBtn.disabled = false;
-                logToConsole("Environment audit completed.", "system");
-            }, 800);
-        }
-    }
-
-    // Threat Center: Populate Selector Dropdown
-    function populateThreatSelector() {
-        if (!state.devices || state.devices.length === 0) {
-            threatDeviceSelect.innerHTML = '<option value="">-- No Devices Located --</option>';
-            updateThreatDetailsCard("");
-            return;
-        }
-
-        let optionsHtml = '<option value="">-- Select a Subnet Node --</option>';
-        state.devices.forEach(dev => {
-            let label = `${dev.ip} - ${dev.vendor}`;
-            if (dev.is_host) label += " (This Host)";
-            optionsHtml += `<option value="${dev.mac}">${label}</option>`;
-        });
-        
-        threatDeviceSelect.innerHTML = optionsHtml;
-        
-        // Preserve selection if possible
-        if (state.selectedThreatMac) {
-            threatDeviceSelect.value = state.selectedThreatMac;
-        } else {
-            updateThreatDetailsCard("");
-        }
-    }
-
-    // Threat Center: Render Selected Device Profile
-    function updateThreatDetailsCard(mac) {
-        if (!mac) {
-            state.selectedThreatMac = "";
-            threatIp.textContent = "--";
-            threatMac.textContent = "--";
-            threatVendor.textContent = "--";
-            threatStatusBadge.innerHTML = "--";
-            
-            latencyValue.textContent = "--";
-            latencyStatusText.textContent = "Select a device to test latency";
-            
-            pingTestBtn.disabled = true;
-            threatApproveBtn.disabled = true;
-            threatBlockBtn.disabled = true;
-            
-            routerGatewayLink.textContent = "http://192.168.1.1";
-            routerGatewayLink.href = "#";
-            routerBlockMacVal.textContent = "--";
-            return;
-        }
-
-        const dev = state.devices.find(d => d.mac === mac);
-        if (!dev) return;
-
-        state.selectedThreatMac = mac;
-        threatIp.textContent = dev.ip;
-        threatMac.textContent = dev.mac;
-        threatVendor.textContent = dev.vendor;
-
-        // Generate status badge
-        const isWhitelisted = state.whitelist.includes(mac);
-        const isBlacklisted = state.blacklist.includes(mac);
-        
-        let statusBadgeHtml = "";
-        if (dev.is_host) {
-            statusBadgeHtml = '<span class="badge" style="background:rgba(6,182,212,0.15);color:var(--color-cyan);">HOST MACHINE</span>';
-        } else if (isWhitelisted) {
-            statusBadgeHtml = '<span class="badge" style="background:rgba(16,185,129,0.15);color:var(--color-green);">APPROVED WORKSTATION</span>';
-        } else if (isBlacklisted) {
-            statusBadgeHtml = '<span class="badge" style="background:rgba(239,68,68,0.15);color:var(--color-red);box-shadow:var(--glow-red);">BLOCKED THREAT</span>';
-        } else {
-            statusBadgeHtml = '<span class="badge" style="background:rgba(245,158,11,0.12);color:var(--color-yellow);">UNKNOWN SUSPECT</span>';
-        }
-        threatStatusBadge.innerHTML = statusBadgeHtml;
-
-        // Enable action buttons
-        pingTestBtn.disabled = false;
-        threatApproveBtn.disabled = dev.is_host;
-        threatBlockBtn.disabled = dev.is_host;
-
-        // Set action button active states
-        if (isWhitelisted) {
-            threatApproveBtn.className = "btn btn-primary"; // approved style
-            threatApproveBtn.innerHTML = '<i data-lucide="check-circle"></i> Approved';
-            
-            threatBlockBtn.className = "btn btn-secondary";
-            threatBlockBtn.innerHTML = '<i data-lucide="slash"></i> Block Blacklist';
-        } else if (isBlacklisted) {
-            threatApproveBtn.className = "btn btn-secondary";
-            threatApproveBtn.innerHTML = '<i data-lucide="check-circle"></i> Approve Whitelist';
-            
-            threatBlockBtn.className = "btn btn-outline-danger"; // blocked style
-            threatBlockBtn.style.background = "rgba(239,68,68,0.1)";
-            threatBlockBtn.innerHTML = '<i data-lucide="slash"></i> Blocked';
-        } else {
-            threatApproveBtn.className = "btn btn-secondary";
-            threatApproveBtn.innerHTML = '<i data-lucide="check-circle"></i> Approve Whitelist';
-            
-            threatBlockBtn.className = "btn btn-secondary";
-            threatBlockBtn.innerHTML = '<i data-lucide="slash"></i> Block Blacklist';
-            threatBlockBtn.style.background = "";
-        }
-
-        // Configure router gateway details
-        const gw = dev.ip.substring(0, dev.ip.lastIndexOf('.')) + ".1";
-        routerGatewayLink.textContent = `http://${gw}`;
-        routerGatewayLink.href = `http://${gw}`;
-        routerBlockMacVal.textContent = dev.mac;
-        
-        latencyValue.textContent = "--";
-        latencyStatusText.textContent = "Press 'Test Ping' to check node latency";
-        
-        safeCreateIcons();
-    }
-
-    // Ping device test handler
-    async function testPingLatency() {
-        if (!state.selectedThreatMac) return;
-        const dev = state.devices.find(d => d.mac === state.selectedThreatMac);
-        if (!dev) return;
-
-        pingTestBtn.disabled = true;
-
-        if (connectedAgentId) {
-            latencyValue.textContent = "??";
-            latencyStatusText.textContent = `Reading remote latency check...`;
-            
-            setTimeout(() => {
-                const latencyVal = dev.latency_ms;
-                if (latencyVal !== undefined && latencyVal !== null && latencyVal !== "ERR") {
-                    latencyValue.textContent = latencyVal + " ms";
-                    latencyStatusText.textContent = `Remote host responded. Latency: ${latencyVal} ms.`;
-                } else {
-                    latencyValue.textContent = "ERR";
-                    latencyStatusText.textContent = `Remote host is unreachable or blocking ICMP pings.`;
-                }
-                pingTestBtn.disabled = false;
-            }, 600);
-            return;
-        }
-
-        latencyValue.textContent = "??";
-        latencyStatusText.textContent = `Pinging host at ${dev.ip}...`;
-        
-        try {
-            const res = await fetch(apiHost + `/api/network/ping?ip=${dev.ip}`);
-            const data = await res.json();
-            
-            if (data.status === "online") {
-                latencyValue.textContent = data.latency_ms;
-                latencyStatusText.textContent = `Device is online. Latency is stable.`;
-            } else if (data.status === "offline") {
-                latencyValue.textContent = "ERR";
-                latencyStatusText.textContent = `Host is offline or blocking ICMP ping sweeps.`;
-            } else {
-                latencyValue.textContent = "ERR";
-                latencyStatusText.textContent = `Ping check failed.`;
-            }
-        } catch (e) {
-            latencyValue.textContent = "ERR";
-            latencyStatusText.textContent = `API error: ${e.message}`;
-        }
-        
-        pingTestBtn.disabled = false;
-    }
-
-    // Event listeners
-    globalRefreshBtn.addEventListener("click", triggerGlobalAudit);
-    scanWifiBtn.addEventListener("click", fetchWifiScan);
-    scanDevicesBtn.addEventListener("click", fetchDevices);
-    clearConsoleBtn.addEventListener("click", () => {
-        consoleStream.innerHTML = '<div class="console-line system-line">[SYSTEM] Console monitor cleared.</div>';
-    });
-
-    threatDeviceSelect.addEventListener("change", (e) => {
-        updateThreatDetailsCard(e.target.value);
-    });
-
-    pingTestBtn.addEventListener("click", testPingLatency);
-
-    threatApproveBtn.addEventListener("click", () => {
-        if (!state.selectedThreatMac) return;
-        const isApproved = state.whitelist.includes(state.selectedThreatMac);
-        setDeviceStatus(state.selectedThreatMac, isApproved ? "unknown" : "approved");
-    });
-
-    threatBlockBtn.addEventListener("click", () => {
-        if (!state.selectedThreatMac) return;
-        const isBlocked = state.blacklist.includes(state.selectedThreatMac);
-        setDeviceStatus(state.selectedThreatMac, isBlocked ? "unknown" : "blocked");
-    });
-
-    function connectAgent(agentId) {
-        connectedAgentId = agentId.trim().toUpperCase();
-        localStorage.setItem("wifi_monitor_agent_id", connectedAgentId);
-        localStorage.removeItem("wifi_monitor_auto_connect_disabled");
-        logToConsole(`Connecting to agent stream: ${connectedAgentId}...`, "system");
-        updateAgentUI();
-        
-        // Fetch remote data immediately
-        fetchAgentReport();
-    }
-
-    async function pollActiveAgents() {
-        if (connectedAgentId) {
-            if (onlineAgentsContainer) onlineAgentsContainer.innerHTML = "";
-            return;
-        }
-        
-        try {
-            const res = await fetch(apiHost + "/api/agent/list");
-            if (!res.ok) return;
-            const data = await res.json();
-            
-            // Auto connect if exactly 1 agent is online
-            const autoConnectDisabled = localStorage.getItem("wifi_monitor_auto_connect_disabled") === "true";
-            if (data.length === 1 && !connectedAgentId && !autoConnectDisabled) {
-                connectAgent(data[0]);
-                return;
-            }
-            
-            if (data.length > 0 && onlineAgentsContainer) {
-                let html = `<div style="color:var(--text-secondary);margin-bottom:4px;font-weight:600;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.05em;">Online Agents:</div>`;
-                data.forEach(id => {
-                    html += `
-                        <button class="btn-online-agent" style="display:flex;align-items:center;gap:6px;background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.15);padding:6px 8px;border-radius:4px;color:var(--color-cyan);cursor:pointer;width:100%;text-align:left;font-weight:500;font-size:0.75rem;transition:all 0.2s;" data-id="${id}">
-                            <span class="status-indicator-dot online" style="margin:0;width:6px;height:6px;box-shadow:var(--glow-green);"></span>
-                            ${id}
-                        </button>
-                    `;
-                });
-                onlineAgentsContainer.innerHTML = html;
-                
-                // Bind click event
-                onlineAgentsContainer.querySelectorAll(".btn-online-agent").forEach(btn => {
-                    btn.addEventListener("click", () => {
-                        const aid = btn.getAttribute("data-id");
-                        connectAgent(aid);
-                    });
-                });
-            } else if (onlineAgentsContainer) {
-                onlineAgentsContainer.innerHTML = "";
-            }
-        } catch (e) {
-            // ignore
-        }
-    }
-
-    // Bind agent click listeners
-    if (agentConnectBtn) {
-        agentConnectBtn.addEventListener("click", () => {
-            const idVal = agentIdInput.value.trim().toUpperCase();
-            if (!idVal) {
-                alert("Please enter your computer name / Agent ID");
-                return;
-            }
-            connectAgent(idVal);
-        });
-    }
-
-    if (agentDisconnectBtn) {
-        agentDisconnectBtn.addEventListener("click", () => {
-            logToConsole(`Disconnecting from agent: ${connectedAgentId}`, "system");
-            connectedAgentId = "";
-            localStorage.removeItem("wifi_monitor_agent_id");
-            localStorage.setItem("wifi_monitor_auto_connect_disabled", "true");
-            updateAgentUI();
-            
-            // Reload local workspace
-            window.location.reload();
-        });
-    }
-
-    function updateAgentUI() {
-        if (!agentIdInput || !agentActiveBadge || !agentInputGroup) return;
-        
-        if (connectedAgentId) {
-            agentInputGroup.classList.add("hidden");
-            agentActiveBadge.classList.remove("hidden");
-            agentActiveText.textContent = `Active: ${connectedAgentId}`;
-            if (localStatusBanner) localStatusBanner.classList.add("hidden");
-            
-            if (wsStatusText) wsStatusText.textContent = "Agent Telemetry Active";
-            if (wsStatusDot) {
-                wsStatusDot.classList.add("online");
-                wsStatusDot.classList.remove("offline");
-            }
-        } else {
-            agentInputGroup.classList.remove("hidden");
-            agentActiveBadge.classList.add("hidden");
-            if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1" && !apiHost) {
-                if (localStatusBanner) localStatusBanner.classList.remove("hidden");
-            }
-        }
-    }
-
-    // Initial triggers
-    updateAgentUI();
-    pollActiveAgents();
-    setInterval(pollActiveAgents, 5000);
-
-    if (connectedAgentId) {
-        // Fetch Agent report and set up 5s poll loop
-        fetchAgentReport();
-        setInterval(fetchAgentReport, 5000);
-    } else {
-        // Normal local dashboard sequence
-        detectLocalServer().then(() => {
-            Promise.all([fetchWhitelist(), fetchBlacklist()]).then(() => {
-                fetchWifiConnection();
-                fetchWifiScan();
-                fetchDevices();
-                fetchAudit();
-                connectWS();
-            });
-        });
-    }
+    // Periodic fetch of online agents list every 15 s
+    setInterval(fetchOnlineAgents, 15000);
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════════════════════════
+const TAB_META = {
+    overview:  { title: 'Security Overview',      subtitle: 'Real-time threat intelligence & Wi-Fi security posture' },
+    threats:   { title: 'Threat Center',          subtitle: 'Active security findings with contextual evidence & remediation' },
+    assets:    { title: 'Wi-Fi Airspace',         subtitle: 'Detected networks, channel analysis & signal mapping' },
+    devices:   { title: 'Subnet Devices',         subtitle: 'Network inventory, access controls & device inspector' },
+    timeline:  { title: 'Security Timeline',      subtitle: 'Historical security events across all scans' },
+    logs:      { title: 'Console Log',            subtitle: 'Live event stream & diagnostic output' },
+};
+
+function setupTabs() {
+    $$('.nav-btn').forEach(btn => {
+        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+}
+
+function switchTab(tab) {
+    $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    $$('.tab-panel').forEach(p => p.classList.remove('active'));
+    const panel = $(`panel-${tab}`);
+    if (panel) panel.classList.add('active');
+    $('page-title').textContent    = TAB_META[tab]?.title    || tab;
+    $('page-subtitle').textContent = TAB_META[tab]?.subtitle || '';
+    lucide.createIcons();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WEBSOCKET
+// ═══════════════════════════════════════════════════════════════════════════════
+function connectWebSocket() {
+    if (ws) { try { ws.close(); } catch(e){} }
+    clearTimeout(wsReconnectTimer);
+    try {
+        ws = new WebSocket(WS_URL);
+        ws.onopen = () => {
+            setWsStatus('online', 'Live feed connected');
+            consoleLog('WebSocket connected to monitor.', 'info');
+        };
+        ws.onmessage = evt => {
+            try {
+                const msg = JSON.parse(evt.data);
+                handleWsMessage(msg);
+            } catch(e) {}
+        };
+        ws.onerror = () => {};
+        ws.onclose = () => {
+            setWsStatus('offline', 'Reconnecting…');
+            wsReconnectTimer = setTimeout(connectWebSocket, 5000);
+        };
+    } catch(e) {
+        wsReconnectTimer = setTimeout(connectWebSocket, 5000);
+    }
+}
+
+function setWsStatus(state, text) {
+    const dot = $('ws-dot');
+    const txt = $('ws-status-text');
+    if (dot) dot.className = 'ws-dot ' + state;
+    if (txt) txt.textContent = text;
+}
+
+function handleWsMessage(msg) {
+    if (msg.type === 'agent_update') {
+        if (msg.agent_id === activeAgentId) {
+            renderFullReport(msg);
+        }
+    } else if (msg.type === 'alert') {
+        showToast(msg.title || 'Alert', msg.message, 'high');
+        consoleLog(`[ALERT] ${msg.title}: ${msg.message}`, 'threat');
+    } else if (msg.type === 'update') {
+        // local mode broadcast
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AGENT PANEL
+// ═══════════════════════════════════════════════════════════════════════════════
+function setupAgentPanel() {
+    $('agent-connect-btn').addEventListener('click', () => {
+        const id = $('agent-id-input').value.trim().toUpperCase();
+        if (id) activateAgent(id);
+    });
+    $('agent-id-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+            const id = $('agent-id-input').value.trim().toUpperCase();
+            if (id) activateAgent(id);
+        }
+    });
+    $('agent-disconnect-btn').addEventListener('click', disconnectAgent);
+}
+
+function activateAgent(agentId) {
+    activeAgentId = agentId.toUpperCase();
+    localStorage.setItem('activeAgent', activeAgentId);
+    $('agent-id-input').value = '';
+    $('agent-active-badge').classList.remove('hidden');
+    $('agent-active-text').textContent = activeAgentId;
+    $('agent-input-group').style.display = 'none';
+
+    consoleLog(`Agent connected: ${activeAgentId}`, 'info');
+    pollAgent();
+    clearInterval(agentPollTimer);
+    agentPollTimer = setInterval(pollAgent, 8000);
+    loadAgentTimeline(activeAgentId);
+}
+
+function disconnectAgent() {
+    clearInterval(agentPollTimer);
+    activeAgentId = null;
+    localStorage.removeItem('activeAgent');
+    $('agent-active-badge').classList.add('hidden');
+    $('agent-input-group').style.display = 'flex';
+    consoleLog('Agent disconnected.', 'warn');
+    resetDashboard();
+}
+
+async function pollAgent() {
+    if (!activeAgentId) return;
+    try {
+        const res = await fetch(`${BASE_URL}/api/agent/report/${activeAgentId}`);
+        if (!res.ok) {
+            if (res.status === 404) consoleLog(`No report yet for agent ${activeAgentId}`, 'warn');
+            return;
+        }
+        const data = await res.json();
+        renderFullReport({ agent_id: activeAgentId, ...data });
+    } catch (e) {
+        consoleLog(`Poll error: ${e.message}`, 'error');
+    }
+}
+
+async function fetchOnlineAgents() {
+    try {
+        const res  = await fetch(`${BASE_URL}/api/agent/list`);
+        const list = await res.json();
+        const cont = $('online-agents-container');
+        cont.innerHTML = '';
+        list.forEach(id => {
+            const chip = document.createElement('button');
+            chip.className = 'online-agent-chip';
+            chip.textContent = id;
+            chip.addEventListener('click', () => activateAgent(id));
+            cont.appendChild(chip);
+        });
+    } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RENDER FULL REPORT
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderFullReport(data) {
+    const wifi    = data.wifi    || {};
+    const devices = data.devices || [];
+    const scan    = data.wifi_scan || [];
+    const score   = typeof data.security_score === 'number' ? data.security_score : 100;
+    const alerts  = data.alerts  || [];
+    const history = data.score_history || [];
+
+    currentAlerts  = alerts;
+    currentDevices = devices;
+
+    renderScoreRing(score);
+    renderKPIs(score, alerts, devices, scan);
+    renderProfileCard(wifi);
+    renderAlerts(alerts);
+    renderScoreChart(history);
+    renderAirspace(scan);
+    renderDevices(devices);
+    updateConnectionPill(wifi);
+    updateThreatBadge(alerts);
+    consoleLog(`[${activeAgentId}] Score: ${score} | Alerts: ${alerts.length} | Devices: ${devices.length} | Nearby: ${scan.length}`, 'ok');
+
+    // Also reload persistent timeline alerts
+    loadAgentTimeline(activeAgentId);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// KPIs
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderKPIs(score, alerts, devices, scan) {
+    $('kpi-score-val').textContent    = score + '%';
+    $('kpi-threats-val').textContent  = alerts.filter(a => a.severity === 'critical' || a.severity === 'high').length;
+    $('kpi-devices-val').textContent  = devices.length;
+    $('kpi-networks-val').textContent = scan.length;
+
+    const kpiScore = $('kpi-score');
+    if (kpiScore) {
+        kpiScore.style.borderColor = score >= 80 ? 'rgba(34,197,94,0.3)'
+            : score >= 60 ? 'rgba(234,179,8,0.3)' : 'rgba(239,68,68,0.3)';
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SCORE RING
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderScoreRing(score) {
+    const ring = $('ring-fill');
+    const num  = $('score-num');
+    const lbl  = $('score-label');
+    const badge = $('score-grade-badge');
+    const circumference = 314.16;
+
+    if (!ring) return;
+    const offset = circumference - (score / 100) * circumference;
+    ring.style.strokeDashoffset = offset;
+    ring.style.stroke = score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : '#ef4444';
+    num.textContent = score;
+
+    let label, grade;
+    if (score >= 90)      { label = 'Excellent – Hardened'; grade = 'A+'; }
+    else if (score >= 80) { label = 'Good – Minor Risks'; grade = 'A'; }
+    else if (score >= 70) { label = 'Fair – Attention Needed'; grade = 'B'; }
+    else if (score >= 55) { label = 'Poor – Active Risks'; grade = 'C'; }
+    else if (score >= 30) { label = 'Bad – Threats Detected'; grade = 'D'; }
+    else                  { label = 'Critical – Immediate Action'; grade = 'F'; }
+
+    lbl.textContent = label;
+    if (badge) badge.textContent = 'Grade ' + grade;
+    $('kpi-score-val').textContent = score + '%';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROFILE CARD
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderProfileCard(wifi) {
+    const set = (id, val) => { const el = $(id); if(el) el.textContent = val || '--'; };
+    set('pr-ssid',    wifi.ssid);
+    set('pr-bssid',   wifi.bssid);
+    set('pr-auth',    wifi.authentication);
+    set('pr-cipher',  wifi.cipher);
+    set('pr-band',    [wifi.band, wifi.channel].filter(Boolean).join(' / ch'));
+    set('pr-signal',  wifi.signal ? wifi.signal + '%' : '--');
+    set('pr-radio',   wifi.radio_type);
+    set('pr-mac',     wifi.mac_address);
+    set('pr-rate',    wifi.receive_rate && wifi.transmit_rate
+            ? `${wifi.receive_rate}↓ / ${wifi.transmit_rate}↑ Mbps` : '--');
+    set('pr-level',   wifi.security_level);
+    set('pr-adapter', wifi.description || wifi.interface_name);
+    set('pr-password', wifi.password_protected === true ? '✅ Yes' : wifi.password_protected === false ? '🚫 No' : '--');
+    set('pr-enc',     wifi.encryption_strength);
+    set('pr-status',  wifi.status);
+
+    // Connection pill
+    updateConnectionPill(wifi);
+}
+
+function updateConnectionPill(wifi) {
+    const pill = $('conn-pill');
+    const txt  = $('conn-pill-text');
+    const icon = $('conn-pill-icon');
+    if (!pill) return;
+    if (wifi.ssid && wifi.status !== 'disconnected') {
+        pill.classList.add('connected');
+        txt.textContent = wifi.ssid;
+        if (icon) icon.setAttribute('data-lucide', 'wifi');
+    } else {
+        pill.classList.remove('connected');
+        txt.textContent = 'Disconnected';
+        if (icon) icon.setAttribute('data-lucide', 'wifi-off');
+    }
+    lucide.createIcons();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderAlerts(alerts) {
+    const cont  = $('alerts-container');
+    const badge = $('alert-count');
+    if (!cont) return;
+
+    if (!alerts.length) {
+        cont.innerHTML = `
+          <div class="empty-state">
+            <i data-lucide="shield-check" class="empty-icon ok"></i>
+            <p>No active threats detected.</p>
+          </div>`;
+        badge.textContent = '0';
+        lucide.createIcons();
+        renderThreatList(alerts);
+        return;
+    }
+
+    badge.textContent = alerts.length;
+    cont.innerHTML = alerts.map(a => `
+      <div class="alert-item ${a.severity || 'info'}">
+        <div class="alert-hdr">
+          <span class="alert-sev-tag ${a.severity || 'info'}">${a.severity?.toUpperCase() || 'INFO'}</span>
+          <span class="alert-category">${escHtml(a.category || '')}</span>
+        </div>
+        <div class="alert-msg">${escHtml(a.message || '')}</div>
+      </div>`).join('');
+    lucide.createIcons();
+
+    // Also update Threat Center
+    renderThreatList(alerts);
+}
+
+function renderThreatList(alerts, filterSev = 'all') {
+    const list = $('threat-list');
+    if (!list) return;
+
+    const filtered = filterSev === 'all' ? alerts
+        : alerts.filter(a => a.severity === filterSev);
+
+    if (!filtered.length) {
+        list.innerHTML = `<div class="empty-state">
+            <i data-lucide="shield-check" class="empty-icon ok"></i>
+            <p>${filterSev === 'all' ? 'No threats detected.' : 'No ' + filterSev + '-severity threats.'}</p>
+          </div>`;
+        lucide.createIcons();
+        return;
+    }
+
+    list.innerHTML = filtered.map((a, i) => `
+      <div class="threat-card ${a.severity || 'info'}" id="tc-${i}">
+        <div class="threat-hdr">
+          <div class="threat-hdr-left">
+            <span class="threat-sev-dot"></span>
+            <div>
+              <div class="threat-cat">${escHtml(a.category || '')}</div>
+              <div class="threat-ts">${a.ts ? fmtTime(a.ts) : 'Just now'}</div>
+            </div>
+          </div>
+          <span class="alert-sev-tag ${a.severity}">${(a.severity || 'INFO').toUpperCase()}</span>
+        </div>
+        <div class="threat-msg">${escHtml(a.message || '')}</div>
+        ${a.evidence && Object.keys(a.evidence).length ? `
+          <details style="margin-top:8px;">
+            <summary style="font-size:0.75rem;color:var(--text-muted);cursor:pointer;">Evidence</summary>
+            <pre style="font-size:0.72rem;color:var(--text-secondary);margin-top:6px;white-space:pre-wrap;">${escHtml(JSON.stringify(a.evidence, null, 2))}</pre>
+          </details>` : ''}
+      </div>`).join('');
+    lucide.createIcons();
+}
+
+function updateThreatBadge(alerts) {
+    const critical = alerts.filter(a => a.severity === 'critical' || a.severity === 'high').length;
+    const badge = $('threat-badge');
+    if (!badge) return;
+    badge.textContent = critical;
+    badge.classList.toggle('hidden', critical === 0);
+}
+
+function setupThreatFilters() {
+    $$('.filter-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            $$('.filter-chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            renderThreatList(currentAlerts, chip.dataset.sev);
+        });
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SCORE HISTORY CHART
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderScoreChart(history) {
+    const canvas = $('score-history-chart');
+    if (!canvas) return;
+    const labels = history.map(h => fmtTime(h.ts, true));
+    const values = history.map(h => h.score);
+
+    if (scoreHistChart) { scoreHistChart.destroy(); scoreHistChart = null; }
+
+    scoreHistChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: 'Security Score',
+                data: values,
+                borderColor: '#22d3ee',
+                backgroundColor: 'rgba(34,211,238,0.08)',
+                borderWidth: 2,
+                pointBackgroundColor: values.map(v =>
+                    v >= 80 ? '#22c55e' : v >= 60 ? '#eab308' : '#ef4444'),
+                pointRadius: 4,
+                tension: 0.4,
+                fill: true,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: {
+                backgroundColor: '#0b1221',
+                borderColor: 'rgba(255,255,255,0.08)',
+                borderWidth: 1,
+            }},
+            scales: {
+                x: { ticks: { color: '#4b5563', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' }},
+                y: { min: 0, max: 100, ticks: { color: '#4b5563', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' }}
+            }
+        }
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AIRSPACE / WI-FI SCAN
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderAirspace(networks) {
+    const tbody = $('airspace-tbody');
+    if (!tbody) return;
+
+    renderChannelChart(networks);
+
+    if (!networks.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="tbl-loading">No networks detected yet.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = networks.map(n => {
+        const auth = n.authentication || 'Unknown';
+        const risk = calcNetworkRisk(auth);
+        const sig  = n.signal || 0;
+        const barW = sig + '%';
+        const barCls = sig < 40 ? 'weak' : sig < 70 ? 'medium' : '';
+        return `
+          <tr>
+            <td style="font-weight:600;">${escHtml(n.ssid || '[Hidden]')}</td>
+            <td class="mono" style="font-size:0.75rem;color:var(--text-muted);">${escHtml(n.bssid || '--')}</td>
+            <td>${n.channel || '--'}</td>
+            <td style="max-width:180px;">
+              <span style="font-size:0.75rem;">${escHtml(auth)}</span>
+              ${n.encryption ? `<br><span style="font-size:0.68rem;color:var(--text-muted);">${escHtml(n.encryption)}</span>` : ''}
+            </td>
+            <td>
+              <div class="signal-bar">
+                <div class="signal-bar-track">
+                  <div class="signal-bar-fill ${barCls}" style="width:${barW}"></div>
+                </div>
+                <span>${sig}%</span>
+              </div>
+            </td>
+            <td><span class="risk-badge ${risk.cls}">${risk.label}</span></td>
+          </tr>`;
+    }).join('');
+}
+
+function calcNetworkRisk(auth) {
+    const a = (auth || '').toUpperCase();
+    if (a.includes('OPEN') || a.includes('NONE') || a === '')
+        return { cls: 'critical', label: 'OPEN' };
+    if (a.includes('WEP')) return { cls: 'high', label: 'WEP' };
+    if (a.includes('WPA') && !a.includes('WPA2') && !a.includes('WPA3'))
+        return { cls: 'medium', label: 'WPA' };
+    if (a.includes('WPA2')) return { cls: 'secure', label: 'WPA2' };
+    if (a.includes('WPA3')) return { cls: 'secure', label: 'WPA3' };
+    return { cls: 'medium', label: 'Unknown' };
+}
+
+function renderChannelChart(networks) {
+    const canvas = $('wifi-channel-chart');
+    if (!canvas) return;
+    if (channelChart) { channelChart.destroy(); channelChart = null; }
+
+    const chMap = {};
+    networks.forEach(n => {
+        const ch = parseInt(n.channel) || 0;
+        if (!chMap[ch]) chMap[ch] = [];
+        chMap[ch].push(n.signal || 0);
+    });
+    const channels = Object.keys(chMap).sort((a,b) => a-b);
+    const avgSigs  = channels.map(ch => Math.round(chMap[ch].reduce((a,b)=>a+b,0)/chMap[ch].length));
+
+    channelChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: channels.map(c => 'Ch ' + c),
+            datasets: [{
+                label: 'Avg Signal %',
+                data: avgSigs,
+                backgroundColor: channels.map((_, i) =>
+                    [1,6,11].includes(parseInt(channels[i]))
+                        ? 'rgba(34,211,238,0.6)' : 'rgba(59,130,246,0.4)'),
+                borderColor: 'rgba(34,211,238,0.8)',
+                borderWidth: 1,
+                borderRadius: 4,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { backgroundColor: '#0b1221', borderColor: 'rgba(255,255,255,0.08)', borderWidth: 1 }
+            },
+            scales: {
+                x: { ticks: { color: '#94a3b8', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.04)' }},
+                y: { min: 0, max: 100, ticks: { color: '#4b5563' }, grid: { color: 'rgba(255,255,255,0.04)' }}
+            }
+        }
+    });
+}
+
+// Scan airspace button
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = $('scan-wifi-btn');
+    if (btn) btn.addEventListener('click', () => {
+        if (activeAgentId) { pollAgent(); showToast('Scanning', 'Airspace scan triggered.', 'info'); }
+        else showToast('No Agent', 'Connect an agent first.', 'medium');
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DEVICES
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderDevices(devices) {
+    const tbody = $('devices-tbody');
+    if (!tbody) return;
+
+    // Stats
+    const total   = devices.length;
+    const wl      = devices.filter(d => d.is_whitelisted).length;
+    const bl      = devices.filter(d => d.is_blacklisted).length;
+    const unauth  = devices.filter(d => !d.is_host && !d.is_whitelisted && !d.is_blacklisted).length;
+
+    const set = (id, v) => { const el=$(id); if(el) el.textContent = v; };
+    set('stat-total',  total);
+    set('stat-wl',     wl);
+    set('stat-unauth', unauth);
+    set('stat-bl',     bl);
+
+    // Update dropdown in inspector
+    updateDeviceDropdown(devices);
+
+    if (!devices.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="tbl-loading">No devices found.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = devices.map(d => {
+        let statusCls, statusLabel;
+        if (d.is_host)        { statusCls = 'host';    statusLabel = 'This Host'; }
+        else if (d.is_blacklisted) { statusCls = 'blocked'; statusLabel = 'Blacklisted'; }
+        else if (d.is_whitelisted) { statusCls = 'approved'; statusLabel = 'Approved'; }
+        else                   { statusCls = 'unknown'; statusLabel = 'Unknown'; }
+
+        const lat = d.latency_ms !== null && d.latency_ms !== undefined && d.latency_ms !== 'ERR'
+            ? `${d.latency_ms}ms` : '--';
+
+        return `
+          <tr style="cursor:pointer;" onclick="selectDevice('${escHtml(d.mac)}')">
+            <td><span class="status-dot ${statusCls}">${statusLabel}</span></td>
+            <td class="mono" style="color:var(--cyan)">${escHtml(d.ip)}</td>
+            <td style="color:var(--text-secondary);font-size:0.75rem;">${escHtml(d.hostname || '--')}</td>
+            <td class="mono" style="font-size:0.78rem;">${escHtml(d.mac)}</td>
+            <td style="font-size:0.8rem;">${escHtml(d.vendor || '--')}</td>
+            <td style="color:${lat === '--' ? 'var(--text-muted)' : 'var(--green)'};">${lat}</td>
+            <td>
+              ${!d.is_host ? `
+                <button class="tbl-btn approve" onclick="event.stopPropagation();whitelistDevice('${escHtml(d.mac)}')">✓</button>
+                <button class="tbl-btn block"   onclick="event.stopPropagation();blacklistDevice('${escHtml(d.mac)}')">✕</button>
+              ` : '<span style="color:var(--text-muted);font-size:0.75rem;">Host</span>'}
+            </td>
+          </tr>`;
+    }).join('');
+}
+
+function updateDeviceDropdown(devices) {
+    // Updates the inspector if a device is selected
+    if (selectedDevice) {
+        const found = devices.find(d => d.mac === selectedDevice.mac);
+        if (found) populateInspector(found);
+    }
+}
+
+window.selectDevice = function(mac) {
+    const d = currentDevices.find(d => d.mac === mac);
+    if (d) { selectedDevice = d; populateInspector(d); switchTab('devices'); }
+};
+
+function populateInspector(d) {
+    const set = (id, v) => { const el=$(id); if(el) el.textContent = v || '--'; };
+    set('insp-ip',       d.ip);
+    set('insp-mac',      d.mac);
+    set('insp-hostname', d.hostname || '--');
+    set('insp-vendor',   d.vendor);
+    const lat = d.latency_ms !== null && d.latency_ms !== 'ERR' ? d.latency_ms + 'ms' : '--';
+    set('insp-latency',  lat);
+
+    $('insp-approve-btn').disabled = d.is_host;
+    $('insp-block-btn').disabled   = d.is_host;
+    $('insp-ping-btn').disabled    = false;
+
+    // Router guide
+    const routerLink = $('router-link');
+    const routerMac  = $('router-block-mac');
+    if (routerLink) {
+        const gw = currentDevices.find(x => x.is_host);
+        const gwBase = gw ? gw.ip.split('.').slice(0,3).join('.') + '.1' : '192.168.1.1';
+        routerLink.href = 'http://' + gwBase;
+        routerLink.textContent = gwBase;
+    }
+    if (routerMac) routerMac.textContent = d.mac;
+}
+
+function setupDeviceInspector() {
+    $('insp-approve-btn')?.addEventListener('click', () => {
+        if (selectedDevice) { whitelistDevice(selectedDevice.mac); }
+    });
+    $('insp-block-btn')?.addEventListener('click', () => {
+        if (selectedDevice) { blacklistDevice(selectedDevice.mac); }
+    });
+    $('insp-ping-btn')?.addEventListener('click', async () => {
+        if (!selectedDevice) return;
+        const btn = $('insp-ping-btn');
+        btn.disabled = true;
+        btn.textContent = 'Pinging…';
+        try {
+            const res = await fetch(`${BASE_URL}/api/network/ping?ip=${selectedDevice.ip}`);
+            const data = await res.json();
+            const el = $('insp-latency');
+            if (data.status === 'online') {
+                if (el) el.textContent = data.latency_ms + 'ms';
+                showToast('Ping Success', `${selectedDevice.ip} responded in ${data.latency_ms}ms`, 'success');
+            } else {
+                if (el) el.textContent = 'Offline';
+                showToast('Ping Failed', `${selectedDevice.ip} is unreachable.`, 'medium');
+            }
+        } catch(e) {
+            showToast('Ping Error', e.message, 'high');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="activity"></i> Ping';
+            lucide.createIcons();
+        }
+    });
+
+    $('scan-devices-btn')?.addEventListener('click', () => {
+        if (activeAgentId) { pollAgent(); showToast('Scanning', 'Subnet map triggered.', 'info'); }
+        else showToast('No Agent', 'Connect an agent first.', 'medium');
+    });
+}
+
+async function whitelistDevice(mac) {
+    whitelist = [...new Set([...whitelist, mac.toUpperCase()])];
+    blacklist = blacklist.filter(m => m !== mac.toUpperCase());
+    await saveWhitelistBlacklist();
+    showToast('Approved', `Device ${mac} whitelisted.`, 'success');
+    pollAgent();
+}
+
+async function blacklistDevice(mac) {
+    blacklist = [...new Set([...blacklist, mac.toUpperCase()])];
+    whitelist = whitelist.filter(m => m !== mac.toUpperCase());
+    await saveWhitelistBlacklist();
+    showToast('Blocked', `Device ${mac} blacklisted.`, 'high');
+    pollAgent();
+}
+
+async function loadWhitelistBlacklist() {
+    try {
+        const [wlRes, blRes] = await Promise.all([
+            fetch(`${BASE_URL}/api/whitelist`),
+            fetch(`${BASE_URL}/api/blacklist`)
+        ]);
+        whitelist = await wlRes.json();
+        blacklist = await blRes.json();
+    } catch(e) {}
+}
+
+async function saveWhitelistBlacklist() {
+    try {
+        await fetch(`${BASE_URL}/api/whitelist`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ macs: whitelist })
+        });
+        await fetch(`${BASE_URL}/api/blacklist`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ macs: blacklist })
+        });
+    } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECURITY TIMELINE
+// ═══════════════════════════════════════════════════════════════════════════════
+async function loadAgentTimeline(agentId) {
+    if (!agentId) return;
+    const lbl = $('timeline-agent-label');
+    if (lbl) lbl.textContent = agentId;
+    try {
+        const res  = await fetch(`${BASE_URL}/api/alerts/${agentId}?limit=100`);
+        const data = await res.json();
+        renderTimeline(data);
+    } catch(e) {}
+}
+
+function renderTimeline(events) {
+    const list = $('timeline-list');
+    if (!list) return;
+    if (!events.length) {
+        list.innerHTML = `<div class="empty-state">
+            <i data-lucide="clock" class="empty-icon"></i>
+            <p>No historical events yet.</p></div>`;
+        lucide.createIcons();
+        return;
+    }
+    list.innerHTML = events.map((e, i) => `
+      <div class="timeline-item">
+        <div class="timeline-marker">
+          <div class="timeline-dot ${e.severity || 'info'}"></div>
+          ${i < events.length - 1 ? '<div class="timeline-line"></div>' : ''}
+        </div>
+        <div class="timeline-content">
+          <div class="timeline-meta">
+            <span class="alert-sev-tag ${e.severity}">${(e.severity||'info').toUpperCase()}</span>
+            <span class="timeline-cat">${escHtml(e.category || '')}</span>
+            <span class="timeline-time">${fmtTime(e.ts)}</span>
+          </div>
+          <div class="timeline-msg">${escHtml(e.message || '')}</div>
+        </div>
+      </div>`).join('');
+    lucide.createIcons();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BUTTONS / GLOBAL ACTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+function setupButtons() {
+    $('global-refresh-btn')?.addEventListener('click', async () => {
+        const icon = $('refresh-icon');
+        if (icon) { icon.style.animation = 'spin 1s linear infinite'; }
+        try {
+            if (activeAgentId) { await pollAgent(); }
+            else {
+                // local mode
+                await Promise.all([
+                    fetch(`${BASE_URL}/api/wifi/connection`).then(r=>r.json()).then(renderProfileCard),
+                    fetch(`${BASE_URL}/api/network/devices`).then(r=>r.json()).then(d=>renderDevices(d.devices||[])),
+                    fetch(`${BASE_URL}/api/security/audit`).then(r=>r.json()).then(data=>{
+                        renderScoreRing(data.security_score || 0);
+                        renderAlerts(data.alerts || []);
+                    }),
+                    fetch(`${BASE_URL}/api/wifi/scan`).then(r=>r.json()).then(d=>renderAirspace(d.networks||[]))
+                ]);
+            }
+            showToast('Audit Complete', 'Security scan finished.', 'success');
+        } catch(e) {
+            showToast('Audit Error', e.message, 'high');
+        } finally {
+            if (icon) icon.style.animation = '';
+        }
+    });
+
+    $('clear-console-btn')?.addEventListener('click', () => {
+        const box = $('console-stream');
+        if (box) box.innerHTML = '<div class="cline sys">[SYSTEM] Console cleared.</div>';
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PUBLIC IP
+// ═══════════════════════════════════════════════════════════════════════════════
+async function fetchPublicIP() {
+    try {
+        const res  = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(5000) });
+        const data = await res.json();
+        const set = (id, v) => { const el=$(id); if(el) el.textContent = v||'--'; };
+        set('pub-ip',  data.ip);
+        set('pub-isp', data.org || data.asn);
+    } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RESET
+// ═══════════════════════════════════════════════════════════════════════════════
+function resetDashboard() {
+    ['score-num','pr-ssid','pr-bssid','pr-auth','pr-cipher','pr-band',
+     'pr-signal','pr-radio','pr-mac','pr-rate','pr-level',
+     'pr-adapter','pr-password','pr-enc','pr-status',
+     'kpi-score-val','kpi-threats-val','kpi-devices-val','kpi-networks-val',
+     'stat-total','stat-wl','stat-unauth','stat-bl'].forEach(id => {
+        const el = $(id); if (el) el.textContent = '--';
+    });
+    const ring = $('ring-fill');
+    if (ring) ring.style.strokeDashoffset = '314.16';
+
+    const ac = $('alerts-container');
+    if (ac) ac.innerHTML = `<div class="empty-state"><i data-lucide="shield-check" class="empty-icon ok"></i><p>No active threats.</p></div>`;
+
+    currentAlerts = []; currentDevices = []; selectedDevice = null;
+    lucide.createIcons();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TOASTS
+// ═══════════════════════════════════════════════════════════════════════════════
+function showToast(title, msg, sev = 'info') {
+    const area = $('toast-area');
+    if (!area) return;
+    const toast = document.createElement('div');
+    toast.className = `toast ${sev}`;
+    toast.innerHTML = `
+      <div class="toast-body">
+        <strong>${escHtml(title)}</strong>
+        <span>${escHtml(msg)}</span>
+      </div>
+      <button class="toast-close" onclick="this.parentElement.remove()">✕</button>`;
+    area.appendChild(toast);
+    setTimeout(() => toast.remove(), 7000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONSOLE LOG
+// ═══════════════════════════════════════════════════════════════════════════════
+function consoleLog(msg, cls = 'sys') {
+    const box = $('console-stream');
+    if (!box) return;
+    const ts   = new Date().toLocaleTimeString();
+    const line = document.createElement('div');
+    line.className = `cline ${cls}`;
+    line.textContent = `[${ts}] ${msg}`;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// UTILITY
+// ═══════════════════════════════════════════════════════════════════════════════
+function escHtml(str) {
+    if (typeof str !== 'string') str = String(str || '');
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmtTime(iso, short = false) {
+    try {
+        const d = new Date(iso);
+        if (short) return d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+        return d.toLocaleString([], { month:'short', day:'numeric',
+            hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    } catch(e) { return iso || ''; }
+}
