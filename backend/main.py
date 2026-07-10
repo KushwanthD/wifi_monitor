@@ -101,13 +101,30 @@ def is_local_agent_running() -> bool:
         print(f"Error checking local agent processes: {e}")
     return False
 
-# Global state for pairing codes (mapping 6-digit code -> agent_id)
-PAIRING_CODES = {}
+# Global state for pairing codes (mapping 6-digit code -> agent_id) backed by a file
+PAIRING_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "pairing_codes.json"))
+
+def load_pairing_codes():
+    if os.path.exists(PAIRING_FILE):
+        try:
+            with open(PAIRING_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_pairing_codes(codes):
+    try:
+        with open(PAIRING_FILE, "w") as f:
+            json.dump(codes, f, indent=4)
+    except Exception as e:
+        print(f"Error saving pairing codes: {e}")
 
 def generate_pairing_code_for_agent(agent_id: str) -> str:
-    global PAIRING_CODES
     code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    PAIRING_CODES[code] = agent_id.upper()
+    codes = load_pairing_codes()
+    codes[code] = agent_id.upper()
+    save_pairing_codes(codes)
     return code
 
 # ── Request models ────────────────────────────────────────────────────────────
@@ -523,10 +540,11 @@ def get_agent_pairing_code(agent_id: str):
 @app.get("/api/agent/verify-pairing")
 def verify_pairing(code: str):
     code_upper = code.upper()
-    if code_upper not in PAIRING_CODES:
+    codes = load_pairing_codes()
+    if code_upper not in codes:
         raise HTTPException(status_code=400, detail="Invalid or expired pairing code.")
     
-    agent_id = PAIRING_CODES[code_upper]
+    agent_id = codes[code_upper]
     return {"status": "success", "agent_id": agent_id}
 
 # ── Alert management endpoints ────────────────────────────────────────────────
