@@ -894,9 +894,25 @@ function setupButtons() {
         }
     });
 
-    $('mobile-menu-btn')?.addEventListener('click', () => {
+    $('mobile-menu-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
         const sidebar = $('sidebar');
         sidebar.classList.toggle('open');
+    });
+
+    $('sidebar-close-btn')?.addEventListener('click', () => {
+        $('sidebar').classList.remove('open');
+    });
+
+    // Close sidebar on click outside on mobile
+    document.addEventListener('click', (e) => {
+        const sidebar = $('sidebar');
+        const menuBtn = $('mobile-menu-btn');
+        if (sidebar && sidebar.classList.contains('open')) {
+            if (!sidebar.contains(e.target) && !menuBtn.contains(e.target)) {
+                sidebar.classList.remove('open');
+            }
+        }
     });
 }
 

@@ -1120,7 +1120,22 @@ body::before {
     grid-template-columns: 1fr;
   }
 }
+
+.hide-on-desktop {
+  display: none !important;
 }
+
+@media (max-width: 900px) {
+  .hide-on-desktop {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+  .hide-on-mobile {
+    display: none !important;
+  }
+}
+
 @media (max-width: 500px) {
   .kpi-row {
     grid-template-columns: 1fr;
@@ -1128,11 +1143,6 @@ body::before {
   .device-stats-row {
     grid-template-columns: 1fr;
   }
-  .hide-on-mobile {
-    display: none !important;
-  }
-}
-@media (max-width: 900px) {
   .hide-on-mobile {
     display: none !important;
   }

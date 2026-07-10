@@ -26,14 +26,19 @@
     <!-- ═══ SIDEBAR ═══════════════════════════════════════════════════════ -->
     <aside class="sidebar" id="sidebar">
         <!-- Logo -->
-        <div class="sidebar-logo">
-            <div class="logo-orb">
-                <i data-lucide="shield-alert" class="logo-icon-svg"></i>
+        <div class="sidebar-logo" style="display: flex; align-items: center; justify-content: space-between; padding: 20px 16px; border-bottom: 1px solid var(--border-subtle); width: 100%;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div class="logo-orb">
+                    <i data-lucide="shield-alert" class="logo-icon-svg"></i>
+                </div>
+                <div>
+                    <div class="logo-name">WiFi<span class="logo-accent">Security</span></div>
+                    <div class="logo-tagline">Monitoring Tool</div>
+                </div>
             </div>
-            <div>
-                <div class="logo-name">WiFi<span class="logo-accent">Security</span></div>
-                <div class="logo-tagline">Monitoring Tool</div>
-            </div>
+            <button id="sidebar-close-btn" class="sidebar-close-btn hide-on-desktop" aria-label="Close Menu" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px;">
+                <i data-lucide="x" style="width: 20px; height: 20px;"></i>
+            </button>
         </div>
 
         <!-- Agent Panel -->
@@ -56,7 +61,7 @@
                         <i data-lucide="x"></i>
                     </button>
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
+                <div class="hide-on-mobile" style="display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
                     <button id="btn-generate-pairing" class="btn-sm-secondary" style="width: 100%; justify-content: center;">
                         <i data-lucide="smartphone"></i> Mobile Connect
                     </button>
