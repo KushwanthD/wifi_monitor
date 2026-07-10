@@ -112,6 +112,13 @@ def init_db():
             known_macs   TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS network_rules (
+            ssid      TEXT NOT NULL,
+            mac       TEXT NOT NULL,
+            status    TEXT NOT NULL,
+            PRIMARY KEY (ssid, mac)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_scans_agent  ON scans(agent_id, ts);
         CREATE INDEX IF NOT EXISTS idx_aps_agent    ON aps(agent_id, ts);
         CREATE INDEX IF NOT EXISTS idx_alerts_agent ON alerts(agent_id, ts);
@@ -294,3 +301,27 @@ def get_latest_compliance(agent_id: str) -> dict:
         (agent_id.upper(),)
     ).fetchone()
     return dict(row) if row else None
+
+
+def get_network_rules(ssid: str, status: str) -> list:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT mac FROM network_rules WHERE ssid=? AND status=?",
+        (ssid, status)
+    ).fetchall()
+    return [r["mac"] for r in rows]
+
+
+def save_network_rules(ssid: str, macs: list, status: str):
+    conn = _get_conn()
+    conn.execute(
+        "DELETE FROM network_rules WHERE ssid=? AND status=?",
+        (ssid, status)
+    )
+    if macs:
+        conn.executemany(
+            "INSERT INTO network_rules(ssid, mac, status) VALUES(?,?,?)",
+            [(ssid, mac.upper(), status) for mac in macs]
+        )
+    conn.commit()
+

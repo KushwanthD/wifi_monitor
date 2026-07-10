@@ -22,6 +22,8 @@ let channelChart     = null;
 let currentAlerts    = [];
 let ws               = null;
 let wsReconnectTimer = null;
+let currentWifi      = {};
+let lastSsid         = null;
 
 // ── DOM shortcuts ─────────────────────────────────────────────────────────────
 const $  = id => document.getElementById(id);
@@ -238,6 +240,12 @@ function renderFullReport(data) {
 
     currentAlerts  = alerts;
     currentDevices = devices;
+    currentWifi    = wifi;
+
+    if (wifi.ssid && wifi.ssid !== lastSsid) {
+        lastSsid = wifi.ssid;
+        loadWhitelistBlacklist();
+    }
 
     renderScoreRing(score);
     renderKPIs(score, alerts, devices, scan);
@@ -780,9 +788,10 @@ window.blacklistDevice = async function(mac) {
 
 async function loadWhitelistBlacklist() {
     try {
+        const ssid = currentWifi ? (currentWifi.ssid || '') : '';
         const [wlRes, blRes] = await Promise.all([
-            fetch(`${BASE_URL}/api/whitelist`),
-            fetch(`${BASE_URL}/api/blacklist`)
+            fetch(`${BASE_URL}/api/whitelist?ssid=${encodeURIComponent(ssid)}`),
+            fetch(`${BASE_URL}/api/blacklist?ssid=${encodeURIComponent(ssid)}`)
         ]);
         whitelist = await wlRes.json();
         blacklist = await blRes.json();
@@ -791,15 +800,16 @@ async function loadWhitelistBlacklist() {
 
 async function saveWhitelistBlacklist() {
     try {
+        const ssid = currentWifi ? (currentWifi.ssid || '') : '';
         await fetch(`${BASE_URL}/api/whitelist`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ macs: whitelist })
+            body: JSON.stringify({ ssid: ssid, macs: whitelist })
         });
         await fetch(`${BASE_URL}/api/blacklist`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ macs: blacklist })
+            body: JSON.stringify({ ssid: ssid, macs: blacklist })
         });
     } catch(e) {}
 }

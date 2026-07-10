@@ -129,9 +129,11 @@ def generate_pairing_code_for_agent(agent_id: str) -> str:
 
 # ── Request models ────────────────────────────────────────────────────────────
 class WhitelistUpdate(BaseModel):
+    ssid: Optional[str] = ""
     macs: List[str]
 
 class BlacklistUpdate(BaseModel):
+    ssid: Optional[str] = ""
     macs: List[str]
 
 class AssetModel(BaseModel):
@@ -159,11 +161,13 @@ def get_devices():
     scan_data = NetworkScanner.get_connected_devices()
     if "error" in scan_data:
         raise HTTPException(status_code=500, detail=scan_data["error"])
-    whitelist = load_whitelist()
-    blacklist = load_blacklist()
+    conn = WiFiScanner.get_current_wifi_connection()
+    ssid = conn.get("ssid", "") if conn else ""
+    whitelist = db.get_network_rules(ssid, "whitelisted")
+    blacklist = db.get_network_rules(ssid, "blacklisted")
     for dev in scan_data["devices"]:
-        dev["is_whitelisted"] = dev["mac"] in whitelist
-        dev["is_blacklisted"] = dev["mac"] in blacklist
+        dev["is_whitelisted"] = dev["mac"].upper() in whitelist
+        dev["is_blacklisted"] = dev["mac"].upper() in blacklist
     return scan_data
 
 @app.get("/api/security/audit")
@@ -175,13 +179,14 @@ def run_audit():
     unwhitelisted_count = 0
     blacklisted_count = 0
     if "devices" in devices_data:
-        whitelist = load_whitelist()
-        blacklist = load_blacklist()
+        ssid = conn.get("ssid", "") if conn else ""
+        whitelist = db.get_network_rules(ssid, "whitelisted")
+        blacklist = db.get_network_rules(ssid, "blacklisted")
         for dev in devices_data["devices"]:
             if not dev["is_host"]:
-                if dev["mac"] in blacklist:
+                if dev["mac"].upper() in blacklist:
                     blacklisted_count += 1
-                elif dev["mac"] not in whitelist:
+                elif dev["mac"].upper() not in whitelist:
                     unwhitelisted_count += 1
     if blacklisted_count > 0:
         audit_data["security_score"] = max(0, audit_data["security_score"] - (30 * blacklisted_count))
@@ -200,28 +205,30 @@ def run_audit():
     return audit_data
 
 @app.get("/api/whitelist")
-def get_whitelist():
-    return load_whitelist()
+def get_whitelist(ssid: Optional[str] = ""):
+    return db.get_network_rules(ssid or "", "whitelisted")
 
 @app.post("/api/whitelist")
 def update_whitelist(payload: WhitelistUpdate):
-    save_whitelist([mac.upper() for mac in payload.macs])
-    blacklist = load_blacklist()
+    ssid = payload.ssid or ""
+    db.save_network_rules(ssid, [mac.upper() for mac in payload.macs], "whitelisted")
+    blacklist = db.get_network_rules(ssid, "blacklisted")
     new_blacklist = [m for m in blacklist if m.upper() not in [x.upper() for x in payload.macs]]
-    save_blacklist(new_blacklist)
-    return {"status": "success", "whitelist": load_whitelist()}
+    db.save_network_rules(ssid, new_blacklist, "blacklisted")
+    return {"status": "success", "whitelist": db.get_network_rules(ssid, "whitelisted")}
 
 @app.get("/api/blacklist")
-def get_blacklist():
-    return load_blacklist()
+def get_blacklist(ssid: Optional[str] = ""):
+    return db.get_network_rules(ssid or "", "blacklisted")
 
 @app.post("/api/blacklist")
 def update_blacklist(payload: BlacklistUpdate):
-    save_blacklist([mac.upper() for mac in payload.macs])
-    whitelist = load_whitelist()
+    ssid = payload.ssid or ""
+    db.save_network_rules(ssid, [mac.upper() for mac in payload.macs], "blacklisted")
+    whitelist = db.get_network_rules(ssid, "whitelisted")
     new_whitelist = [m for m in whitelist if m.upper() not in [x.upper() for x in payload.macs]]
-    save_whitelist(new_whitelist)
-    return {"status": "success", "blacklist": load_blacklist()}
+    db.save_network_rules(ssid, new_whitelist, "whitelisted")
+    return {"status": "success", "blacklist": db.get_network_rules(ssid, "blacklisted")}
 
 @app.get("/api/network/ping")
 def ping_device(ip: str):
@@ -455,8 +462,8 @@ async def receive_agent_report(request: Request):
                     encryption_strength="Unknown", security_details="Unknown")
 
     # Vendor lookup for unknown devices
-    whitelist = load_whitelist()
-    blacklist = load_blacklist()
+    whitelist = db.get_network_rules(wifi.get("ssid", ""), "whitelisted")
+    blacklist = db.get_network_rules(wifi.get("ssid", ""), "blacklisted")
     processed_devices = []
     for d in payload.devices:
         dev_mac = d.mac.upper()
@@ -666,7 +673,6 @@ async def import_airspace_csv(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
 
-# ── Executive Report Exporter ────────────────────────────────────────────────
 @app.get("/api/reports/export/{agent_id}")
 def export_report(agent_id: str, format: str = "html"):
     aid = agent_id.upper()
@@ -682,6 +688,52 @@ def export_report(agent_id: str, format: str = "html"):
     alerts = report.get("alerts", [])
     compliance = db.get_latest_compliance(aid) or {"score": 0, "wpa3_status":0, "wps_status":0, "pmf_status":0, "default_ssid_status":0, "open_network_status":0}
     
+    # Detect threats from compliance and alerts
+    threats_audit = [
+        {
+            "name": "SSID Spoofing / Rogue AP",
+            "detected": any(a.get("category") in ("Rogue Access Point", "SSID Spoofing") for a in alerts),
+            "remediation": "Locate and disable the unauthorized transmitter or change your SSID name.",
+            "details": "Multiple APs broadcasting same SSID with conflicting parameters."
+        },
+        {
+            "name": "WPS PIN Attack Vulnerability",
+            "detected": compliance.get("wps_status") == 0,
+            "remediation": "Disable WPS (Wi-Fi Protected Setup) in your router settings.",
+            "details": "WPS is enabled, allowing PIN brute-forcing."
+        },
+        {
+            "name": "Open/Unencrypted Wireless Subnet",
+            "detected": compliance.get("open_network_status") == 0,
+            "remediation": "Enable WPA2 or WPA3 Personal encryption with a strong password.",
+            "details": "Subnet is open, allowing unauthenticated client joins."
+        },
+        {
+            "name": "Insecure Legacy Ciphers (WEP)",
+            "detected": "WEP" in str(wifi.get("authentication")).upper() or "WEP" in str(wifi.get("cipher")).upper(),
+            "remediation": "Upgrade your router's security configuration to WPA2-AES or WPA3.",
+            "details": "Router is configured with WEP (highly vulnerable to rapid decryption attacks)."
+        },
+        {
+            "name": "Active Subnet Intruder",
+            "detected": any(a.get("category") in ("Blacklisted Node Active", "Intruder Alert") for a in alerts),
+            "remediation": "Change your Wi-Fi passphrase, turn on MAC address filtering, and block the unauthorized client.",
+            "details": "Active hosts matched your blacklist or were classified as unapproved intruders."
+        },
+        {
+            "name": "High-Risk Exposed Services (Ports)",
+            "detected": any(len(d.get("open_ports", [])) > 0 for d in devices),
+            "remediation": "Close unnecessary open ports, disable UPnP, and set firewall rules to block public port exposure.",
+            "details": "One or more active subnet devices is exposing dangerous services like Telnet, FTP, or HTTP."
+        },
+        {
+            "name": "Default Factory SSID Signature",
+            "detected": compliance.get("default_ssid_status") == 0,
+            "remediation": "Rename your SSID to a custom, generic string.",
+            "details": "SSID name matches generic factory defaults, revealing device hardware model."
+        }
+    ]
+
     if format == "csv":
         import csv
         import io
@@ -692,6 +744,13 @@ def export_report(agent_id: str, format: str = "html"):
         
         writer.writerow(["REPORT SUMMARY", f"Agent: {aid}", f"Security Score: {score}%"])
         writer.writerow([])
+        
+        writer.writerow(["THREAT AUDIT CHECKLIST"])
+        writer.writerow(["Threat Area", "Threat Detected?", "Details", "Remediation"])
+        for t in threats_audit:
+            writer.writerow([t["name"], "YES" if t["detected"] else "NO", t["details"], t["remediation"] if t["detected"] else "N/A"])
+        writer.writerow([])
+
         writer.writerow(["ACTIVE ALERTS"])
         writer.writerow(["Severity", "Category", "Message", "Remediation"])
         for a in alerts:
@@ -736,6 +795,17 @@ def export_report(agent_id: str, format: str = "html"):
             """ for d in devices
         ])
         
+        threats_rows = "".join([
+            f"""
+            <tr>
+                <td><strong>{t['name']}</strong></td>
+                <td><span style="color: {'#ef4444; font-weight: bold;' if t['detected'] else '#22c55e;'};">{"YES" if t['detected'] else "NO"}</span></td>
+                <td>{t['details']}</td>
+                <td style="font-size: 13px; color: {'#b45309;' if t['detected'] else '#64748b;'};">{t['remediation'] if t['detected'] else 'None required.'}</td>
+            </tr>
+            """ for t in threats_audit
+        ])
+
         compliance_score = compliance.get("score", 0)
         
         html_content = f"""
@@ -806,6 +876,23 @@ def export_report(agent_id: str, format: str = "html"):
                 </div>
             </div>
             
+            <div class="section">
+                <div class="section-title">Threat Audit Checklist</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Threat Vector</th>
+                            <th>Detected?</th>
+                            <th>Diagnostic Details</th>
+                            <th>Required Remediation</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {threats_rows}
+                    </tbody>
+                </table>
+            </div>
+
             <div class="section">
                 <div class="section-title">Active Security Threats & Recommendations</div>
                 {alerts_html}
