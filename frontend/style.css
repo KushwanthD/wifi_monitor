@@ -1040,3 +1040,59 @@ body::before {
   color: var(--cyan);
   border: 1px solid rgba(6, 182, 212, 0.22);
 }
+
+/* Mobile Sidebar & Toggle */
+.mobile-menu-btn {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  padding: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mobile-menu-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+@media (max-width: 900px) {
+  .mobile-menu-btn.hidden {
+    display: flex !important;
+  }
+  .sidebar {
+    position: fixed;
+    left: -280px;
+    top: 0;
+    bottom: 0;
+    z-index: 1000;
+    transition: left 0.3s ease;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+  }
+  .sidebar.open {
+    left: 0;
+  }
+  .top-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .kpi-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .device-stats-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .device-inspector-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 500px) {
+  .kpi-row {
+    grid-template-columns: 1fr;
+  }
+  .device-stats-row {
+    grid-template-columns: 1fr;
+  }
+}

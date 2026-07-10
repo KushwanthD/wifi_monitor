@@ -45,13 +45,26 @@
                     <i data-lucide="plug-zap"></i>
                 </button>
             </div>
-            <div id="online-agents-container" class="online-agents-list" style="display: none;"></div>
-            <div id="agent-active-badge" class="agent-badge hidden">
-                <span class="agent-badge-dot"></span>
-                <span id="agent-active-text" class="agent-badge-name">LAPTOP-X</span>
-                <button id="agent-disconnect-btn" class="agent-badge-close" title="Disconnect">
-                    <i data-lucide="x"></i>
-                </button>
+                <div id="online-agents-container" class="online-agents-list" style="display: none;"></div>
+            <div id="agent-active-badge" class="agent-badge hidden" style="flex-direction: column; align-items: stretch; padding: 12px; gap: 10px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="agent-badge-dot"></span>
+                        <span id="agent-active-text" class="agent-badge-name" style="font-size: 1rem; font-weight: 700;">LAPTOP-X</span>
+                    </div>
+                    <button id="agent-disconnect-btn" class="agent-badge-close" title="Disconnect" style="position: static;">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
+                    <button id="btn-generate-pairing" class="btn-sm-secondary" style="width: 100%; justify-content: center;">
+                        <i data-lucide="smartphone"></i> Mobile Connect
+                    </button>
+                    <div id="active-pairing-display" class="hidden" style="text-align: center; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.04);">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 2px;">Pairing Code:</div>
+                        <div id="active-pairing-code" class="mono" style="font-size: 1.4rem; color: var(--cyan); letter-spacing: 2px; font-weight: 800;">------</div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -103,8 +116,13 @@
         <!-- Top Header -->
         <header class="top-bar">
             <div class="top-bar-left">
-                <h1 class="page-title" id="page-title">Security Overview</h1>
-                <p class="page-subtitle" id="page-subtitle">Real-time threat intelligence and Wi-Fi security posture</p>
+                <button id="mobile-menu-btn" class="mobile-menu-btn hidden" aria-label="Toggle Menu">
+                    <i data-lucide="menu"></i>
+                </button>
+                <div>
+                    <h1 class="page-title" id="page-title">Security Overview</h1>
+                    <p class="page-subtitle" id="page-subtitle">Real-time threat intelligence and Wi-Fi security posture</p>
+                </div>
             </div>
             <div class="top-bar-right">
                 <div class="connection-pill" id="conn-pill">
@@ -133,10 +151,6 @@
                 <a href="/static/run_wifimonitor.bat" download class="banner-dl-btn" style="margin-left: 0; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
                     <i data-lucide="download"></i> Download Agent (.bat)
                 </a>
-            </div>
-            <div id="pairing-code-display" class="hidden" style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
-                <span class="text-muted text-sm">Mobile Pairing Code:</span>
-                <span id="pairing-code-val" style="font-size: 1.5rem; font-weight: 800; color: var(--cyan); letter-spacing: 2px;">------</span>
             </div>
         </div>
 

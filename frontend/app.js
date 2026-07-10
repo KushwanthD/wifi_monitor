@@ -186,6 +186,7 @@ function disconnectAgent() {
     activeAgentId = null;
     localStorage.removeItem('activeAgent');
     $('agent-active-badge').classList.add('hidden');
+    $('active-pairing-display')?.classList.add('hidden');
     $('agent-input-group').style.display = 'flex';
     consoleLog('Agent disconnected.', 'warn');
     resetDashboard();
@@ -877,6 +878,25 @@ function setupButtons() {
     $('clear-console-btn')?.addEventListener('click', () => {
         const box = $('console-stream');
         if (box) box.innerHTML = '<div class="cline sys">[SYSTEM] Console cleared.</div>';
+    });
+
+    $('btn-generate-pairing')?.addEventListener('click', async () => {
+        if (!activeAgentId) return;
+        try {
+            const res = await fetch(`${BASE_URL}/api/agent/${activeAgentId}/pairing-code`);
+            if (!res.ok) throw new Error('Failed to generate pairing code');
+            const data = await res.json();
+            $('active-pairing-code').textContent = data.pairing_code;
+            $('active-pairing-display').classList.remove('hidden');
+            showToast('Code Generated', 'Enter this code on your mobile device to connect.', 'info');
+        } catch (e) {
+            showToast('Error', e.message, 'high');
+        }
+    });
+
+    $('mobile-menu-btn')?.addEventListener('click', () => {
+        const sidebar = $('sidebar');
+        sidebar.classList.toggle('open');
     });
 }
 

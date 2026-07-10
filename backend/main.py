@@ -101,13 +101,14 @@ def is_local_agent_running() -> bool:
         print(f"Error checking local agent processes: {e}")
     return False
 
-# Global state for pairing code
-LOCAL_PAIRING_CODE = None
+# Global state for pairing codes (mapping 6-digit code -> agent_id)
+PAIRING_CODES = {}
 
-def generate_pairing_code() -> str:
-    global LOCAL_PAIRING_CODE
-    LOCAL_PAIRING_CODE = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    return LOCAL_PAIRING_CODE
+def generate_pairing_code_for_agent(agent_id: str) -> str:
+    global PAIRING_CODES
+    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    PAIRING_CODES[code] = agent_id.upper()
+    return code
 
 # ── Request models ────────────────────────────────────────────────────────────
 class WhitelistUpdate(BaseModel):
@@ -513,52 +514,19 @@ def list_active_agents():
     reports = load_reports()
     return list(reports.keys())
 
-@app.get("/api/agent/local-status")
-def get_local_agent_status():
-    global LOCAL_PAIRING_CODE
-    running = is_local_agent_running()
-    if running and not LOCAL_PAIRING_CODE:
-        generate_pairing_code()
-    return {"running": running, "pairing_code": LOCAL_PAIRING_CODE if running else None}
-
-@app.post("/api/agent/run-local")
-def run_local_agent():
-    global LOCAL_PAIRING_CODE
-    if is_local_agent_running():
-        if not LOCAL_PAIRING_CODE:
-            generate_pairing_code()
-        return {"status": "already_running", "message": "Local agent is already running.", "pairing_code": LOCAL_PAIRING_CODE}
-
-    if not os.path.exists(AGENT_SCRIPT):
-        raise HTTPException(status_code=500, detail="Local agent script not found.")
-
-    creationflags = 0
-    if hasattr(subprocess, 'CREATE_NO_WINDOW'):
-        creationflags |= subprocess.CREATE_NO_WINDOW
-    if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
-        creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
-
-    try:
-        subprocess.Popen(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", AGENT_SCRIPT],
-            cwd=FRONTEND_DIR,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=creationflags,
-            shell=False
-        )
-        generate_pairing_code()
-        return {"status": "started", "message": "Local agent launched on the backend.", "pairing_code": LOCAL_PAIRING_CODE}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/api/agent/{agent_id}/pairing-code")
+def get_agent_pairing_code(agent_id: str):
+    aid = agent_id.upper()
+    code = generate_pairing_code_for_agent(aid)
+    return {"status": "success", "agent_id": aid, "pairing_code": code}
 
 @app.get("/api/agent/verify-pairing")
 def verify_pairing(code: str):
-    if not LOCAL_PAIRING_CODE or code.upper() != LOCAL_PAIRING_CODE:
+    code_upper = code.upper()
+    if code_upper not in PAIRING_CODES:
         raise HTTPException(status_code=400, detail="Invalid or expired pairing code.")
-    # The agent ID is the COMPUTERNAME as per agent.ps1
-    agent_id = os.environ.get("COMPUTERNAME", "UNKNOWN").upper()
+    
+    agent_id = PAIRING_CODES[code_upper]
     return {"status": "success", "agent_id": agent_id}
 
 # ── Alert management endpoints ────────────────────────────────────────────────
