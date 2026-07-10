@@ -130,9 +130,14 @@
                 <span>Start the local scanning agent on the backend</span>
                 <div class="banner-command"><span id="local-agent-status">Checking local agent status...</span></div>
             </div>
-            <button id="run-local-agent-btn" class="banner-dl-btn">
-                <i data-lucide="play-circle"></i> Start Local Agent
-            </button>
+            <div style="display: flex; gap: 10px; align-items: center; margin-left: auto;">
+                <button id="run-local-agent-btn" class="banner-dl-btn" style="margin-left: 0; cursor: pointer;">
+                    <i data-lucide="play-circle"></i> Start Local Agent
+                </button>
+                <a href="/static/run_wifimonitor.bat" download class="banner-dl-btn" style="margin-left: 0; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                    <i data-lucide="download"></i> Download Agent (.bat)
+                </a>
+            </div>
             <div id="pairing-code-display" class="hidden" style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
                 <span class="text-muted text-sm">Mobile Pairing Code:</span>
                 <span id="pairing-code-val" style="font-size: 1.5rem; font-weight: 800; color: var(--cyan); letter-spacing: 2px;">------</span>
