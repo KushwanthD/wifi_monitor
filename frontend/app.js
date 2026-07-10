@@ -49,7 +49,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => activateAgent(activeAgentId), 600);
     } else {
         updateBannerVisibility();
-        checkLocalAgentStatus();
     }
 });
 
@@ -875,53 +874,10 @@ function setupButtons() {
         }
     });
 
-    $('run-local-agent-btn')?.addEventListener('click', async () => {
-        try {
-            const res = await fetch(`${BASE_URL}/api/agent/run-local`, { method: 'POST' });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || data.message || 'Unable to start local agent');
-            showToast('Agent Started', data.message || 'Local agent launched on backend.', 'success');
-            if (data.pairing_code) {
-                $('pairing-code-val').textContent = data.pairing_code;
-                $('pairing-code-display').classList.remove('hidden');
-            }
-            await checkLocalAgentStatus();
-        } catch (e) {
-            showToast('Run Agent Failed', e.message, 'high');
-        }
-    });
-
     $('clear-console-btn')?.addEventListener('click', () => {
         const box = $('console-stream');
         if (box) box.innerHTML = '<div class="cline sys">[SYSTEM] Console cleared.</div>';
     });
-}
-
-async function checkLocalAgentStatus() {
-    const statusEl = $('local-agent-status');
-    const btn = $('run-local-agent-btn');
-    if (!statusEl || !btn) return;
-    try {
-        const res = await fetch(`${BASE_URL}/api/agent/local-status`);
-        const data = await res.json();
-        if (data.running) {
-            statusEl.textContent = 'Local agent is already running.';
-            btn.disabled = true;
-            btn.innerHTML = '<i data-lucide="check-circle"></i> Agent Running';
-            if (data.pairing_code) {
-                $('pairing-code-val').textContent = data.pairing_code;
-                $('pairing-code-display').classList.remove('hidden');
-            }
-        } else {
-            statusEl.textContent = 'Local agent is not running.';
-            btn.disabled = false;
-            btn.innerHTML = '<i data-lucide="play-circle"></i> Start Local Agent';
-            $('pairing-code-display').classList.add('hidden');
-        }
-    } catch (e) {
-        statusEl.textContent = 'Could not determine local agent status.';
-        btn.disabled = false;
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

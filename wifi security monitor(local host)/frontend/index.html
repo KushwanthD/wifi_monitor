@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WiFi Security Monitoring Tool</title>
+    <meta name="description" content="Real-time Wi-Fi threat detection, device inventory, and security assessment platform with behavioral baselining and actionable threat intelligence.">
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Styles -->
+    <link rel="stylesheet" href="style.css?v=40">
+</head>
+<body>
+<div class="app-shell">
+
+    <!-- ═══ SIDEBAR ═══════════════════════════════════════════════════════ -->
+    <aside class="sidebar" id="sidebar">
+        <!-- Logo -->
+        <div class="sidebar-logo">
+            <div class="logo-orb">
+                <i data-lucide="shield-alert" class="logo-icon-svg"></i>
+            </div>
+            <div>
+                <div class="logo-name">WiFi<span class="logo-accent">Security</span></div>
+                <div class="logo-tagline">Monitoring Tool</div>
+            </div>
+        </div>
+
+        <!-- Agent Panel -->
+        <div class="agent-panel">
+            <div class="agent-panel-label">CLOUD REMOTE AGENT</div>
+            <div class="agent-input-row" id="agent-input-group">
+                <input type="text" id="agent-id-input" class="agent-input" placeholder="Computer Name (ID)" autocomplete="off">
+                <button id="agent-connect-btn" class="agent-connect-btn" title="Connect">
+                    <i data-lucide="plug-zap"></i>
+                </button>
+            </div>
+            <div id="online-agents-container" class="online-agents-list" style="display: none;"></div>
+            <div id="agent-active-badge" class="agent-badge hidden">
+                <span class="agent-badge-dot"></span>
+                <span id="agent-active-text" class="agent-badge-name">LAPTOP-X</span>
+                <button id="agent-disconnect-btn" class="agent-badge-close" title="Disconnect">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Nav -->
+        <nav class="sidebar-nav">
+            <button class="nav-btn active" data-tab="overview" id="nav-overview">
+                <i data-lucide="layout-dashboard"></i><span>Overview</span>
+            </button>
+            <button class="nav-btn" data-tab="threats" id="nav-threats">
+                <i data-lucide="shield-alert"></i><span>Threat Center</span>
+                <span class="nav-badge hidden" id="threat-badge">0</span>
+            </button>
+            <button class="nav-btn" data-tab="assets" id="nav-assets">
+                <i data-lucide="wifi"></i><span>Wi-Fi Airspace</span>
+            </button>
+            <button class="nav-btn" data-tab="devices" id="nav-devices">
+                <i data-lucide="laptop"></i><span>Subnet Devices</span>
+            </button>
+            <button class="nav-btn" data-tab="inventory" id="nav-inventory">
+                <i data-lucide="database"></i><span>Asset Inventory</span>
+            </button>
+            <button class="nav-btn" data-tab="compliance" id="nav-compliance">
+                <i data-lucide="clipboard-check"></i><span>Compliance Center</span>
+            </button>
+            <button class="nav-btn" data-tab="forensics" id="nav-forensics">
+                <i data-lucide="scan"></i><span>Traffic Forensics</span>
+            </button>
+            <button class="nav-btn" data-tab="timeline" id="nav-timeline">
+                <i data-lucide="activity"></i><span>Security Timeline</span>
+            </button>
+            <button class="nav-btn" data-tab="logs" id="nav-logs">
+                <i data-lucide="terminal"></i><span>Console</span>
+            </button>
+        </nav>
+
+        <!-- WS status -->
+        <div class="ws-status-widget" id="ws-widget">
+            <div class="ws-dot" id="ws-dot"></div>
+            <div>
+                <div class="ws-label">Live Monitor</div>
+                <div class="ws-desc" id="ws-status-text">Connecting…</div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ═══ MAIN ═══════════════════════════════════════════════════════════ -->
+    <main class="main-area">
+
+        <!-- Top Header -->
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <h1 class="page-title" id="page-title">Security Overview</h1>
+                <p class="page-subtitle" id="page-subtitle">Real-time threat intelligence and Wi-Fi security posture</p>
+            </div>
+            <div class="top-bar-right">
+                <div class="connection-pill" id="conn-pill">
+                    <i data-lucide="wifi-off" id="conn-pill-icon"></i>
+                    <span id="conn-pill-text">Scanning…</span>
+                </div>
+                <button class="btn-sm-secondary" id="export-html-btn" title="Export PDF/HTML Report">
+                    <i data-lucide="file-text"></i> PDF Report
+                </button>
+                <button class="btn-sm-secondary" id="export-csv-btn" title="Export CSV Data">
+                    <i data-lucide="download"></i> CSV Data
+                </button>
+                <button class="btn-audit" id="global-refresh-btn">
+                    <i data-lucide="refresh-cw" id="refresh-icon"></i>
+                    <span>Audit Now</span>
+                </button>
+            </div>
+        </header>
+
+        <div id="local-status-banner" class="download-banner hidden">
+            <i data-lucide="shield-check"></i>
+            <div>
+                <span>Start the local scanning agent on the backend</span>
+                <div class="banner-command"><span id="local-agent-status">Checking local agent status...</span></div>
+            </div>
+            <button id="run-local-agent-btn" class="banner-dl-btn">
+                <i data-lucide="play-circle"></i> Start Local Agent
+            </button>
+            <div id="pairing-code-display" class="hidden" style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+                <span class="text-muted text-sm">Mobile Pairing Code:</span>
+                <span id="pairing-code-val" style="font-size: 1.5rem; font-weight: 800; color: var(--cyan); letter-spacing: 2px;">------</span>
+            </div>
+        </div>
+
+        <!-- Scroll viewport -->
+        <div class="viewport">
+
+            <!-- ══ TAB: OVERVIEW ══════════════════════════════════════════ -->
+            <section class="tab-panel active" id="panel-overview">
+                <!-- KPI row -->
+                <div class="kpi-row">
+                    <div class="kpi-card glassmorphism" id="kpi-score">
+                        <div class="kpi-icon-wrap kpi-score-col">
+                            <i data-lucide="shield"></i>
+                        </div>
+                        <div>
+                            <div class="kpi-label">Security Score</div>
+                            <div class="kpi-value" id="kpi-score-val">--</div>
+                        </div>
+                    </div>
+                    <div class="kpi-card glassmorphism" id="kpi-threats">
+                        <div class="kpi-icon-wrap kpi-threat-col">
+                            <i data-lucide="alert-triangle"></i>
+                        </div>
+                        <div>
+                            <div class="kpi-label">Active Threats</div>
+                            <div class="kpi-value" id="kpi-threats-val">--</div>
+                        </div>
+                    </div>
+                    <div class="kpi-card glassmorphism" id="kpi-devices">
+                        <div class="kpi-icon-wrap kpi-device-col">
+                            <i data-lucide="cpu"></i>
+                        </div>
+                        <div>
+                            <div class="kpi-label">Subnet Devices</div>
+                            <div class="kpi-value" id="kpi-devices-val">--</div>
+                        </div>
+                    </div>
+                    <div class="kpi-card glassmorphism" id="kpi-networks">
+                        <div class="kpi-icon-wrap kpi-net-col">
+                            <i data-lucide="radio"></i>
+                        </div>
+                        <div>
+                            <div class="kpi-label">Nearby Networks</div>
+                            <div class="kpi-value" id="kpi-networks-val">--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Score ring + Connection details + Alerts -->
+                <div class="overview-grid">
+
+                    <!-- Security Score Ring -->
+                    <div class="card glassmorphism card-score-ring">
+                        <div class="card-hdr">
+                            <span class="card-title">Security Profile</span>
+                            <span class="badge-outline" id="score-grade-badge">--</span>
+                        </div>
+                        <div class="score-ring-wrap">
+                            <svg class="score-svg" viewBox="0 0 120 120">
+                                <circle class="ring-track" cx="60" cy="60" r="50"/>
+                                <circle class="ring-fill" id="ring-fill" cx="60" cy="60" r="50"
+                                        stroke-dasharray="314.16" stroke-dashoffset="314.16"/>
+                            </svg>
+                            <div class="score-center">
+                                <span class="score-num" id="score-num">--</span>
+                                <span class="score-pct">%</span>
+                            </div>
+                        </div>
+                        <div class="score-label" id="score-label">Awaiting scan…</div>
+                        <div class="profile-rows" id="profile-rows">
+                            <div class="profile-row"><span>SSID</span><span id="pr-ssid">--</span></div>
+                            <div class="profile-row"><span>BSSID</span><span class="mono" id="pr-bssid">--</span></div>
+                            <div class="profile-row"><span>Authentication</span><span id="pr-auth">--</span></div>
+                            <div class="profile-row"><span>Password Protected</span><span id="pr-password">--</span></div>
+                            <div class="profile-row"><span>Cipher</span><span id="pr-cipher">--</span></div>
+                            <div class="profile-row"><span>Band / Channel</span><span id="pr-band">--</span></div>
+                            <div class="profile-row"><span>Signal</span><span id="pr-signal">--</span></div>
+                            <div class="profile-row"><span>Radio Type</span><span id="pr-radio">--</span></div>
+                            <div class="profile-row"><span>MAC Address</span><span class="mono" id="pr-mac">--</span></div>
+                            <div class="profile-row"><span>Link Speed ↓/↑</span><span id="pr-rate">--</span></div>
+                            <div class="profile-row"><span>Security Level</span><span id="pr-level">--</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Active Alerts panel -->
+                    <div class="card glassmorphism card-alerts-panel">
+                        <div class="card-hdr">
+                            <span class="card-title">Active Alerts</span>
+                            <span class="badge-alert" id="alert-count">0</span>
+                        </div>
+                        <div class="alerts-scroll" id="alerts-container">
+                            <div class="empty-state">
+                                <i data-lucide="shield-check" class="empty-icon ok"></i>
+                                <p>No active threats detected.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Score history chart -->
+                    <div class="card glassmorphism card-score-chart">
+                        <div class="card-hdr">
+                            <span class="card-title">Security Score Trend</span>
+                            <span class="text-muted text-sm">Last 20 scans</span>
+                        </div>
+                        <div class="chart-wrap">
+                            <canvas id="score-history-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Connection detail boxes -->
+                    <div class="card glassmorphism card-conn-detail">
+                        <div class="card-hdr">
+                            <span class="card-title">Connection Details</span>
+                            <i data-lucide="info" class="text-muted"></i>
+                        </div>
+                        <div class="info-boxes" id="conn-detail-boxes">
+                            <div class="info-box"><span>Public IP</span><strong id="pub-ip">--</strong></div>
+                            <div class="info-box"><span>ISP</span><strong id="pub-isp">--</strong></div>
+                            <div class="info-box"><span>Adapter</span><strong id="pr-adapter">--</strong></div>
+                            <div class="info-box"><span>Password</span><strong id="pr-password-box">--</strong></div>
+                            <div class="info-box"><span>Encryption</span><strong id="pr-enc">--</strong></div>
+                            <div class="info-box"><span>Status</span><strong id="pr-status">--</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══ TAB: THREAT CENTER ════════════════════════════════════ -->
+            <section class="tab-panel" id="panel-threats">
+                <div class="threat-filter-row">
+                    <button class="filter-chip active" data-sev="all" id="fchip-all">All</button>
+                    <button class="filter-chip" data-sev="critical" id="fchip-critical">🔴 Critical</button>
+                    <button class="filter-chip" data-sev="high" id="fchip-high">🟠 High</button>
+                    <button class="filter-chip" data-sev="medium" id="fchip-medium">🟡 Medium</button>
+                    <button class="filter-chip" data-sev="low" id="fchip-low">🟢 Low</button>
+                    <button class="filter-chip" data-sev="info" id="fchip-info">ℹ️ Info</button>
+                </div>
+                <div id="threat-list" class="threat-list">
+                    <div class="empty-state">
+                        <i data-lucide="shield-check" class="empty-icon ok"></i>
+                        <p>No threats detected. Connect an agent to begin monitoring.</p>
+                    </div>
+                </div>
+
+                <!-- Threat Correlation Matrix -->
+                <div class="card glassmorphism" style="margin-top: 1.5rem;">
+                    <div class="card-hdr">
+                        <span class="card-title">Vulnerability Threat Correlation Matrix</span>
+                        <span class="text-muted text-sm">Mapping active system flaws to real-world attack scenarios</span>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="min-width: 150px;">Detected Vulnerability</th>
+                                    <th style="min-width: 180px;">Potential Threat Vector</th>
+                                    <th>Exploit & Attack Scenario</th>
+                                    <th style="width: 100px;">Impact</th>
+                                    <th style="width: 100px;">Likelihood</th>
+                                </tr>
+                            </thead>
+                            <tbody id="threat-correlation-table-body">
+                                <tr>
+                                    <td colspan="5" class="empty-state" style="text-align: center; padding: 2rem;">
+                                        <i data-lucide="shield-alert" class="empty-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: var(--text-muted);"></i>
+                                        <p style="font-size: 0.85rem; color: var(--text-secondary);">No vulnerabilities parsed. Connect your active agent to run threat mappings.</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══ TAB: WI-FI AIRSPACE ════════════════════════════════════ -->
+            <section class="tab-panel" id="panel-assets">
+                <div class="airspace-grid">
+                    <!-- Channel chart -->
+                    <div class="card glassmorphism card-channel-chart">
+                        <div class="card-hdr">
+                            <span class="card-title">Channel Occupancy & Signal Strengths</span>
+                            <span class="text-muted text-sm">Avoid overlapping channels 1/6/11</span>
+                        </div>
+                        <div class="chart-wrap">
+                            <canvas id="wifi-channel-chart"></canvas>
+                        </div>
+                    </div>
+                    <!-- Networks table -->
+                    <div class="card glassmorphism">
+                        <div class="card-hdr">
+                            <span class="card-title">Detected Networks</span>
+                            <button class="btn-sm-secondary" id="scan-wifi-btn">
+                                <i data-lucide="refresh-cw"></i> Scan Airspace
+                            </button>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="data-table" id="airspace-table">
+                                <thead>
+                                    <tr>
+                                        <th>SSID</th><th>BSSID</th><th>Ch</th>
+                                        <th>Auth / Enc</th><th>Signal</th><th>Risk</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="airspace-tbody">
+                                    <tr><td colspan="6" class="tbl-loading"><i data-lucide="loader" class="spin"></i> Scanning airspace…</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══ TAB: SUBNET DEVICES ════════════════════════════════════ -->
+            <section class="tab-panel" id="panel-devices">
+                <!-- Stats -->
+                <div class="device-stats-row">
+                    <div class="dstat-card glassmorphism">
+                        <span class="dstat-label">Total Hosts</span>
+                        <span class="dstat-val cyan" id="stat-total">--</span>
+                    </div>
+                    <div class="dstat-card glassmorphism">
+                        <span class="dstat-label">Whitelisted</span>
+                        <span class="dstat-val green" id="stat-wl">--</span>
+                    </div>
+                    <div class="dstat-card glassmorphism">
+                        <span class="dstat-label">Unauthorized</span>
+                        <span class="dstat-val red" id="stat-unauth">--</span>
+                    </div>
+                    <div class="dstat-card glassmorphism">
+                        <span class="dstat-label">Blacklisted</span>
+                        <span class="dstat-val orange" id="stat-bl">--</span>
+                    </div>
+                </div>
+                <!-- Table -->
+                <div class="card glassmorphism" style="margin-top:1rem;">
+                    <div class="card-hdr">
+                        <span class="card-title">Network Device Inventory</span>
+                        <button class="btn-sm-secondary" id="scan-devices-btn">
+                            <i data-lucide="search"></i> Map Subnet
+                        </button>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table" id="devices-table">
+                            <thead>
+                                <tr>
+                                    <th>Status</th><th>IP Address</th><th>Hostname</th>
+                                    <th>MAC Address</th><th>Vendor</th><th>Latency</th><th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="devices-tbody">
+                                <tr><td colspan="7" class="tbl-loading"><i data-lucide="loader" class="spin"></i> Locating nodes…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Device inspector / threat actions -->
+                <div class="device-inspector-grid" style="margin-top:1.5rem;">
+                    <div class="card glassmorphism">
+                        <div class="card-hdr">
+                            <span class="card-title">Target Device Inspector</span>
+                            <i data-lucide="crosshair" class="text-muted"></i>
+                        </div>
+                        <div class="inspector-detail" id="inspector-detail">
+                            <div class="insp-row"><span>IP Address</span><strong id="insp-ip">--</strong></div>
+                            <div class="insp-row"><span>MAC Address</span><strong class="mono" id="insp-mac">--</strong></div>
+                            <div class="insp-row"><span>Hostname</span><strong id="insp-hostname">--</strong></div>
+                            <div class="insp-row"><span>Vendor / OUI</span><strong id="insp-vendor">--</strong></div>
+                            <div class="insp-row"><span>Latency</span><strong id="insp-latency">--</strong></div>
+                        </div>
+                        <div class="insp-row" style="margin-top:8px; border-top: 1px solid rgba(255,255,255,0.06); padding-top:8px; flex-direction:column; align-items:flex-start; gap:6px;">
+                            <span style="font-size:0.75rem; color:var(--text-secondary);">Exposed Services / Open Ports</span>
+                            <div style="width:100%; max-height:110px; overflow-y:auto; border-radius:4px; border:1px solid rgba(255,255,255,0.06);">
+                                <table class="data-table" style="background:transparent; box-shadow:none; margin:0; width:100%; font-size:0.72rem;">
+                                    <thead>
+                                        <tr style="background:rgba(255,255,255,0.03);">
+                                            <th style="padding:4px 8px;">Port</th>
+                                            <th style="padding:4px 8px;">Service</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="insp-ports-tbody">
+                                        <tr>
+                                            <td colspan="2" class="text-muted" style="text-align:center; padding:6px; font-size:0.72rem;">No open ports audited.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="insp-actions">
+                            <button class="btn-approve" id="insp-approve-btn" disabled>
+                                <i data-lucide="check-circle"></i> Approve
+                            </button>
+                            <button class="btn-block" id="insp-block-btn" disabled>
+                                <i data-lucide="slash"></i> Block
+                            </button>
+                            <button class="btn-ping" id="insp-ping-btn" disabled>
+                                <i data-lucide="activity"></i> Ping
+                            </button>
+                            <button class="btn-approve" id="insp-promote-btn" disabled style="background:var(--purple-dim); color:var(--purple); border-color:rgba(167,139,250,0.3);">
+                                <i data-lucide="plus-circle"></i> Managed Asset
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card glassmorphism">
+                        <div class="card-hdr">
+                            <span class="card-title">Router MAC Blocking Guide</span>
+                            <i data-lucide="info" class="cyan"></i>
+                        </div>
+                        <ol class="router-guide">
+                            <li>Open router portal: <a href="#" id="router-link" target="_blank" class="mono cyan">192.168.1.1</a></li>
+                            <li>Log in with admin credentials.</li>
+                            <li>Navigate to <strong>Wireless → Access Control</strong> or <strong>MAC Filtering</strong>.</li>
+                            <li>Set filtering mode to <strong>Blacklist</strong> (Block Access).</li>
+                            <li>Add MAC address: <strong class="mono red" id="router-block-mac">--</strong></li>
+                            <li>Apply settings — device will be instantly disconnected.</li>
+                        </ol>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══ TAB: ASSET INVENTORY ═══════════════════════════════════ -->
+            <section class="tab-panel" id="panel-inventory">
+                <div class="device-inspector-grid">
+                    <!-- Add Asset Form -->
+                    <div class="card glassmorphism">
+                        <div class="card-hdr">
+                            <span class="card-title">Register Managed Asset</span>
+                            <i data-lucide="plus-circle" class="cyan"></i>
+                        </div>
+                        <form id="asset-form" class="router-guide" onsubmit="event.preventDefault(); saveAsset();" style="display:flex; flex-direction:column; gap:8px;">
+                            <div style="display:flex; gap:8px;">
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">MAC Address</label>
+                                    <input type="text" id="asset-mac" class="agent-input" placeholder="00:11:22:33:44:55" required style="width:100%;">
+                                </div>
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Asset Name</label>
+                                    <input type="text" id="asset-name" class="agent-input" placeholder="Office Printer / Main Router" required style="width:100%;">
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:8px;">
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Asset Type</label>
+                                    <select id="asset-type" class="agent-input" style="width:100%; height:32px;">
+                                        <option value="device">Subnet Device</option>
+                                        <option value="ap">Access Point (AP)</option>
+                                    </select>
+                                </div>
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Expected Vendor</label>
+                                    <input type="text" id="asset-vendor" class="agent-input" placeholder="Cisco / Apple" style="width:100%;">
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:8px;">
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Expected Channel</label>
+                                    <input type="text" id="asset-channel" class="agent-input" placeholder="36" style="width:100%;">
+                                </div>
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Expected Security</label>
+                                    <input type="text" id="asset-encryption" class="agent-input" placeholder="WPA3" style="width:100%;">
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:8px;">
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Location</label>
+                                    <input type="text" id="asset-location" class="agent-input" placeholder="Floor 2" style="width:100%;">
+                                </div>
+                                <div style="flex:1;">
+                                    <label class="lbl-desc" style="font-size:0.75rem; color:var(--text-secondary);">Owner</label>
+                                    <input type="text" id="asset-owner" class="agent-input" placeholder="IT Dept" style="width:100%;">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn-audit" style="margin-top:10px; width:100%; justify-content:center;">
+                                <i data-lucide="shield-check"></i> Register Asset
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Assets List -->
+                    <div class="card glassmorphism">
+                        <div class="card-hdr">
+                            <span class="card-title">Managed Assets Inventory</span>
+                            <i data-lucide="database" class="text-muted"></i>
+                        </div>
+                        <div class="table-wrap" style="max-height: 280px; overflow-y: auto;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th><th>MAC Address</th><th>Type</th><th>Expected Parameters</th><th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="assets-tbody">
+                                    <tr><td colspan="5" class="tbl-loading">Loading inventory…</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══ TAB: COMPLIANCE CENTER ═════════════════════════════════ -->
+            <section class="tab-panel" id="panel-compliance">
+                <!-- Compliance Summary Card -->
+                <div class="device-stats-row" style="margin-bottom: 1.5rem;">
+                    <div class="dstat-card glassmorphism" style="flex-direction:row; align-items:center; justify-content:space-between; gap:20px;">
+                        <div>
+                            <span class="dstat-label">CIS Benchmark Compliance Score</span>
+                            <span class="dstat-val cyan" id="comp-score-val" style="font-size: 2.2rem;">--%</span>
+                        </div>
+                        <div class="score-ring-wrap" style="width:70px; height:70px; margin:0;">
+                            <svg class="score-svg" viewBox="0 0 120 120">
+                                <circle class="ring-track" cx="60" cy="60" r="50"/>
+                                <circle class="ring-fill" id="comp-ring-fill" cx="60" cy="60" r="50"
+                                        stroke-dasharray="314.16" stroke-dashoffset="314.16"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Compliance Checklist -->
+                <div class="threat-list" id="compliance-checklist-container">
+                    <div class="empty-state"><i data-lucide="loader" class="spin"></i> Computing compliance...</div>
+                </div>
+            </section>
+
+            <!-- ══ TAB: TRAFFIC FORENSICS ═════════════════════════════════ -->
+            <section class="tab-panel" id="panel-forensics">
+                <div class="forensics-grid-layout">
+                    <!-- Upload Card -->
+                    <div class="card glassmorphism file-upload-card" id="pcap-dropzone" style="text-align:center; padding: 3rem 2rem; margin-bottom: 1.5rem;">
+                        <i data-lucide="upload-cloud" class="upload-icon" style="font-size: 3rem; color: var(--cyan); margin-bottom: 1rem;"></i>
+                        <h3 style="margin-bottom: 0.5rem;">Upload Wireshark Packet Capture (.pcap)</h3>
+                        <p class="text-muted" style="margin-bottom: 1.5rem; font-size: 0.85rem;">Drag and drop your standard Ethernet PCAP file here, or click to browse</p>
+                        <input type="file" id="pcap-file-input" style="display:none;" accept=".pcap">
+                        <button class="btn btn-primary" onclick="document.getElementById('pcap-file-input').click()">Browse File</button>
+                    </div>
+
+                    <!-- Results Area (Hidden by default) -->
+                    <div id="pcap-results-container" class="hidden">
+                        <!-- Summary Cards -->
+                        <div class="stats-row" style="margin-bottom:1.5rem;">
+                            <div class="stat-card glassmorphism">
+                                <div class="stat-lbl">Total Packets Analyzed</div>
+                                <div class="stat-val" id="pcap-stat-packets">0</div>
+                            </div>
+                            <div class="stat-card glassmorphism">
+                                <div class="stat-lbl">Unique IPs Active</div>
+                                <div class="stat-val" id="pcap-stat-ips">0</div>
+                            </div>
+                            <div class="stat-card glassmorphism">
+                                <div class="stat-lbl">Unique MACs Active</div>
+                                <div class="stat-val" id="pcap-stat-macs">0</div>
+                            </div>
+                            <div class="stat-card glassmorphism">
+                                <div class="stat-lbl">Forensics Security Score</div>
+                                <div class="stat-val" id="pcap-stat-score">100%</div>
+                            </div>
+                        </div>
+
+                        <!-- Split Content -->
+                        <div class="twin-grid">
+                            <!-- Anomalies Feed -->
+                            <div class="card glassmorphism">
+                                <div class="card-hdr">
+                                    <span class="card-title">Traffic Anomalies & Plaintext Logins</span>
+                                </div>
+                                <div class="threat-list" id="pcap-anomalies-list" style="max-height: 400px; overflow-y: auto; padding: 1rem;">
+                                    <!-- Dynamic -->
+                                </div>
+                            </div>
+
+                            <!-- Protocol Breakdown -->
+                            <div class="card glassmorphism">
+                                <div class="card-hdr">
+                                    <span class="card-title">Protocol Distribution</span>
+                                </div>
+                                <div class="card-body" style="padding: 1.5rem;">
+                                    <div class="chart-container" style="height: 180px; margin-bottom: 1.5rem; display: flex; justify-content: center;">
+                                        <canvas id="pcap-protocol-chart" style="max-height: 180px; max-width: 180px;"></canvas>
+                                    </div>
+                                    <table class="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Protocol</th>
+                                                <th>Packet Count</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="pcap-protocol-table-body">
+                                            <!-- Dynamic -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══ TAB: SECURITY TIMELINE ═════════════════════════════════ -->
+            <section class="tab-panel" id="panel-timeline">
+                <div class="card glassmorphism">
+                    <div class="card-hdr">
+                        <span class="card-title">Security Event Timeline</span>
+                        <span class="text-muted text-sm" id="timeline-agent-label">Connect an agent</span>
+                    </div>
+                    <div id="timeline-list" class="timeline-list">
+                        <div class="empty-state">
+                            <i data-lucide="clock" class="empty-icon"></i>
+                            <p>No historical events yet. Events accumulate as scans run.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══ TAB: CONSOLE LOG ════════════════════════════════════════ -->
+            <section class="tab-panel" id="panel-logs">
+                <div class="card glassmorphism" style="height:100%;">
+                    <div class="card-hdr">
+                        <span class="card-title">Live Event Stream</span>
+                        <button class="btn-sm-secondary" id="clear-console-btn">Clear</button>
+                    </div>
+                    <div class="console-box" id="console-stream">
+                        <div class="cline sys">[SYSTEM] Console online. Listening for security events…</div>
+                    </div>
+                </div>
+            </section>
+
+        </div><!-- /viewport -->
+    </main>
+</div>
+
+<!-- Mobile Pairing Modal -->
+<div id="mobile-pairing-modal" class="modal-overlay hidden">
+    <div class="modal-content glassmorphism" style="max-width: 400px; text-align: center; padding: 2rem;">
+        <i data-lucide="smartphone" style="font-size: 3rem; color: var(--cyan); margin-bottom: 1rem;"></i>
+        <h2 style="margin-bottom: 1rem;">Mobile Connect</h2>
+        <p class="text-muted" style="margin-bottom: 1.5rem; font-size: 0.9rem;">Enter the 6-character Pairing Code shown on your PC dashboard to view live security data.</p>
+        <input type="text" id="mobile-pairing-input" class="agent-input" placeholder="e.g. A3X9B1" maxlength="6" style="text-align: center; font-size: 1.5rem; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 1.5rem;">
+        <button id="mobile-pairing-btn" class="btn-audit" style="width: 100%; justify-content: center;">Connect to Agent</button>
+    </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-area" id="toast-area"></div>
+
+<script src="app.js?v=43"></script>
+</body>
+</html>

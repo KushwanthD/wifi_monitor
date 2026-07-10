@@ -59,7 +59,7 @@ echo  Enter "%COMPUTERNAME%" on the dashboard to connect.
 echo.
 
 :: Run the clean agent script (no escaping issues!)
-powershell -NoProfile -ExecutionPolicy Bypass -File "%AGENT_PS1%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%AGENT_PS1%" -ServerUrl "https://wifi-monitor-x7jk.onrender.com/api/agent/report"
 
 :: Cleanup
 del "%AGENT_PS1%" 2>nul
