@@ -254,6 +254,7 @@ function renderFullReport(data) {
     renderScoreChart(history);
     renderAirspace(scan);
     renderDevices(devices);
+    renderMobileDevices(devices);
     updateConnectionPill(wifi);
     updateThreatBadge(alerts);
     consoleLog(`[${activeAgentId}] Score: ${score} | Alerts: ${alerts.length} | Devices: ${devices.length} | Nearby: ${scan.length}`, 'ok');
@@ -1365,3 +1366,79 @@ function renderPcapResults(data) {
     
     lucide.createIcons();
 }
+
+function renderMobileDevices(devices) {
+    const container = $('mobile-devices-container');
+    if (!container) return;
+    $('mobile-device-count').textContent = devices.length;
+
+    container.innerHTML = '';
+    if (devices.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>No live devices detected yet.</p></div>';
+        return;
+    }
+
+    devices.forEach((dev, idx) => {
+        const item = document.createElement('div');
+        item.className = 'mobile-device-card glassmorphism';
+        item.style.padding = '12px';
+        item.style.borderRadius = '8px';
+        item.style.border = '1px solid rgba(255,255,255,0.06)';
+        item.style.background = 'rgba(255,255,255,0.02)';
+        item.style.cursor = 'pointer';
+
+        // Status dot and classes
+        let statusClass = 'unknown';
+        if (dev.is_host) statusClass = 'host';
+        else if (dev.is_blacklisted) statusClass = 'blocked';
+        else if (dev.is_whitelisted) statusClass = 'approved';
+
+        const label = dev.is_host ? 'Host' : dev.is_blacklisted ? 'Blocked' : dev.is_whitelisted ? 'Approved' : 'Unknown';
+
+        const openPortsText = dev.open_ports && dev.open_ports.length > 0
+            ? dev.open_ports.join(', ')
+            : 'None';
+
+        item.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center;" onclick="toggleMobileDeviceExpand(${idx})">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="status-dot ${statusClass}"></span>
+                    <div>
+                        <strong style="font-size: 0.85rem; color: var(--text-primary);">${escHtml(dev.ip)}</strong>
+                        <div style="font-size: 0.72rem; color: var(--text-muted);">${escHtml(dev.hostname || 'No Hostname')}</div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span class="badge ${dev.is_blacklisted ? 'badge-danger' : dev.is_whitelisted ? 'badge-info' : 'badge-orange'}" style="font-size: 0.6rem; padding: 2px 6px;">${label}</span>
+                    <i data-lucide="chevron-down" id="mobile-dev-chevron-${idx}" style="width: 16px; height: 16px; transition: transform 0.2s;"></i>
+                </div>
+            </div>
+            <div id="mobile-dev-details-${idx}" class="hidden" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.08); font-size: 0.78rem; display: flex; flex-direction: column; gap: 4px;">
+                <div><span style="color: var(--text-muted);">MAC Address:</span> <span class="mono">${escHtml(dev.mac)}</span></div>
+                <div><span style="color: var(--text-muted);">Vendor:</span> <span>${escHtml(dev.vendor || 'Unknown')}</span></div>
+                <div><span style="color: var(--text-muted);">Latency:</span> <span>${escHtml(dev.latency_ms || '--')} ms</span></div>
+                <div><span style="color: var(--text-muted);">Open Ports:</span> <span>${escHtml(openPortsText)}</span></div>
+                <div style="display: flex; gap: 8px; margin-top: 8px;">
+                    <button class="tbl-btn approve" style="flex: 1; padding: 6px;" onclick="event.stopPropagation(); approveDevice('${dev.mac}')">Approve</button>
+                    <button class="tbl-btn block" style="flex: 1; padding: 6px;" onclick="event.stopPropagation(); blacklistDevice('${dev.mac}')">Block</button>
+                </div>
+            </div>
+        `;
+        container.appendChild(item);
+    });
+    lucide.createIcons({ attrs: { class: 'lucide' } });
+}
+
+window.toggleMobileDeviceExpand = function(idx) {
+    const details = $(`mobile-dev-details-${idx}`);
+    const chevron = $(`mobile-dev-chevron-${idx}`);
+    if (details) {
+        if (details.classList.contains('hidden')) {
+            details.classList.remove('hidden');
+            if (chevron) chevron.style.transform = 'rotate(180deg)';
+        } else {
+            details.classList.add('hidden');
+            if (chevron) chevron.style.transform = 'rotate(0deg)';
+        }
+    }
+};

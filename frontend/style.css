@@ -1121,11 +1121,25 @@ body::before {
   }
 }
 
+.hidden {
+  display: none !important;
+}
+
 .hide-on-desktop {
   display: none !important;
 }
 
+.mobile-only-devices-list {
+  display: none !important;
+}
+
 @media (max-width: 900px) {
+  .mobile-only-devices-list {
+    display: block !important;
+  }
+  .page-subtitle {
+    display: none !important;
+  }
   .hide-on-desktop {
     display: inline-flex !important;
     align-items: center;
