@@ -960,18 +960,7 @@ body::before {
   .card-score-ring, .card-alerts-panel, .card-score-chart, .card-conn-detail { grid-column: auto; grid-row: auto; }
   .device-inspector-grid { grid-template-columns: 1fr; }
 }
-@media (max-width: 800px) {
-  :root { --sidebar-w: 60px; }
-  .sidebar-logo .logo-name,
-  .sidebar-logo .logo-tagline,
-  .agent-panel,
-  .nav-btn span,
-  .ws-label, .ws-desc { display: none; }
-  .nav-btn { padding: 12px; justify-content: center; }
-  .ws-status-widget { justify-content: center; }
-  .kpi-row { grid-template-columns: 1fr 1fr; }
-  .device-stats-row { grid-template-columns: repeat(2, 1fr); }
-}
+
 
 /* Executive Reports & Inventory & Compliance Custom Styles */
 
