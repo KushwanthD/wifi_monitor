@@ -972,6 +972,7 @@ if os.path.exists(FRONTEND_DIR):
     app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
     @app.get("/")
+    @app.head("/")
     def read_root():
         index_path = os.path.join(FRONTEND_DIR, "index.html")
         if os.path.exists(index_path):
@@ -979,5 +980,6 @@ if os.path.exists(FRONTEND_DIR):
         return {"message": "Frontend index.html not found"}
 else:
     @app.get("/")
+    @app.head("/")
     def read_root():
         return {"message": f"Frontend directory not found at {FRONTEND_DIR}"}
